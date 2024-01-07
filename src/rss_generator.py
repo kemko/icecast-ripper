@@ -25,10 +25,10 @@ def generate_rss_feed(files, output_directory, server_host):
                 file_id = file_hash_to_id(file_hash)
 
                 with tag('item'):
+                    with tag('enclosure', url=f'{server_host}/files/{file_name}', length=os.path.getsize(file_path), type='audio/mpeg'):
+                        pass
                     with tag('title'):
                         text(file_name)
-                    with tag('link'):
-                        text(f'{server_host}/files/{file_name}')
                     with tag('guid', isPermaLink='false'):
                         text(file_id)
                     with tag('pubDate'):
