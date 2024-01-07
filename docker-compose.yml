@@ -1,0 +1,16 @@
+version: '3'
+
+services:
+  icecast-recorder:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - STREAM_URL=http://example.com/stream
+      - CHECK_INTERVAL=60
+      - RECORD_DIRECTORY=/records
+      - CONNECT_TIMEOUT=10
+      - FIRST_BYTE_TIMEOUT=30
+      - WEB_SERVER_PORT=8080
+    volumes:
+      - ./records:/records
