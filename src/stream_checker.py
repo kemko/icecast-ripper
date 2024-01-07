@@ -39,4 +39,4 @@ class StreamChecker:
                     self.recorder = Recorder(self.stream_url, self.output_directory, self.timeout_read)
                     await self.recorder.start_recording()
 
-            await asyncio.sleep(self.check_interval)
+            await asyncio.sleep(int(self.check_interval))
