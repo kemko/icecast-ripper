@@ -42,7 +42,6 @@ async def serve_file(request):
     content_type, _ = mimetypes.guess_type(file)
 
     headers = {
-        'Content-Disposition': f'attachment; filename="{file}"',
         'Content-Type': content_type or 'application/octet-stream',
     }
     return web.FileResponse(file_path, headers=headers)
