@@ -13,7 +13,7 @@ class Recorder: # pylint: disable=too-many-instance-attributes
         self.timeout_read = timeout_read
         self.timeout_connect = timeout_connect
         self.file_name = None
-        self.file_path = os.path.join(self.output_directory, self.file_name)
+        self.file_path = None
         self.start_time = None
         self.last_data_time = None
         self.is_recording = False
@@ -32,6 +32,7 @@ class Recorder: # pylint: disable=too-many-instance-attributes
         sanitized_domain = sanitize_filename(domain)
         date_str = self.start_time.strftime("%Y%m%d_%H%M%S")
         self.file_name = f"{sanitized_domain}_{date_str}.mp3.tmp"
+        self.file_path = os.path.join(self.output_directory, self.file_name)
         try:
             timeout = aiohttp.ClientTimeout(total=None, connect=self.timeout_connect, sock_read=self.timeout_read)
             async with aiohttp.ClientSession(timeout=timeout) as session:
