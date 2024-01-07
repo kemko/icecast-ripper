@@ -20,6 +20,13 @@ class Recorder: # pylint: disable=too-many-instance-attributes
 
     async def start_recording(self):
         """Start recording the stream to a file"""
+
+        if not os.path.exists(self.output_directory):
+            try:
+                os.makedirs(self.output_directory)
+            except Exception as e: # pylint: disable=broad-except
+                log_event("output_directory_error", {"error": str(e)}, level="ERROR")
+
         self.start_time = datetime.utcnow()
         domain = self.stream_url.split("//")[-1].split("/")[0]
         sanitized_domain = sanitize_filename(domain)
