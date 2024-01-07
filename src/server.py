@@ -1,20 +1,23 @@
-from aiohttp import web
+"""Server module for the application"""
 import os
 import mimetypes
-from rss_generator import generate_rss_feed
-from logger import log_event
 from pprint import pprint
 from pathlib import Path
+from aiohttp import web
+from rss_generator import generate_rss_feed
+from logger import log_event
 
 routes = web.RouteTableDef()
 
 @routes.get('/health')
 async def helth_check(request):
+    """Health check endpoint"""
     log_event("health_check_requested", {"method": "GET", "path": request.path}, level="INFO")
     return web.Response(text="OK")
 
 @routes.get('/rss')
 async def rss_feed(request):
+    """RSS feed endpoint"""
     log_event("rss_feed_requested", {"method": "GET", "path": request.path}, level="INFO")
     output_directory = request.app['config'].output_directory
     files = [f for f in os.listdir(output_directory) if f.endswith('.mp3')]
@@ -23,6 +26,7 @@ async def rss_feed(request):
 
 @routes.get('/files/{file_name}')
 async def serve_file(request):
+    """File serving endpoint"""
     file_name = request.match_info['file_name']
     log_event("file_serve_requested", {"method": "GET", "path": request.path, "file_name": file_name}, level="INFO")
 
@@ -47,6 +51,7 @@ async def serve_file(request):
     return web.FileResponse(file_path, headers=headers)
 
 async def start_server(config):
+    """Start the web server"""
     app = web.Application()
     app['config'] = config
     app.add_routes(routes)

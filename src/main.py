@@ -1,9 +1,11 @@
+"""Main entry point for the Icecast stream checker and recorder"""
 import asyncio
 from server import start_server
 from stream_checker import StreamChecker
 from config import load_configuration
 
 def main():
+    """Main entry point for the Icecast stream checker and recorder"""
     # Load configuration from command line arguments and environment variables
     config = load_configuration()
 

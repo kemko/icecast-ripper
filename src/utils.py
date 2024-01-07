@@ -1,3 +1,4 @@
+"""Utility functions for the application"""
 import hashlib
 import string
 
@@ -5,7 +6,7 @@ def sanitize_filename(filename):
     """
     Sanitize the filename by removing or replacing invalid characters.
     """
-    valid_chars = "-_.() %s%s" % (string.ascii_letters, string.digits)
+    valid_chars = f"-_.() {string.ascii_letters}{string.digits}"
     cleaned_filename = "".join(c for c in filename if c in valid_chars)
     cleaned_filename = cleaned_filename.replace(' ', '_')  # Replace spaces with underscores
     return cleaned_filename

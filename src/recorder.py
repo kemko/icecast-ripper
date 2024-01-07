@@ -1,28 +1,30 @@
-import aiohttp
+"""Recorder class for recording a stream to a file"""
 import os
 from datetime import datetime, timedelta
-from logger import log_event, log_error
+import aiohttp
+from logger import log_event
 from utils import sanitize_filename
-from pprint import pprint
 
-class Recorder:
+class Recorder: # pylint: disable=too-many-instance-attributes
+    """Recorder class for recording a stream to a file"""
     def __init__(self, stream_url, output_directory, timeout_connect=10, timeout_read=30):
         self.stream_url = stream_url
         self.output_directory = output_directory
         self.timeout_read = timeout_read
         self.timeout_connect = timeout_connect
         self.file_name = None
+        self.file_path = os.path.join(self.output_directory, self.file_name)
         self.start_time = None
         self.last_data_time = None
         self.is_recording = False
 
     async def start_recording(self):
+        """Start recording the stream to a file"""
         self.start_time = datetime.utcnow()
         domain = self.stream_url.split("//")[-1].split("/")[0]
         sanitized_domain = sanitize_filename(domain)
         date_str = self.start_time.strftime("%Y%m%d_%H%M%S")
         self.file_name = f"{sanitized_domain}_{date_str}.mp3.tmp"
-        self.file_path = os.path.join(self.output_directory, self.file_name)
         try:
             timeout = aiohttp.ClientTimeout(total=None, connect=self.timeout_connect, sock_read=self.timeout_read)
             async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -38,7 +40,7 @@ class Recorder:
                                 f.write(data)
                             # Check if timeout exceeded between data chunks
                             if datetime.utcnow() - self.last_data_time > timedelta(seconds=self.timeout_read):
-                                log_error("timeout_exceeded", {
+                                log_event("timeout_exceeded", {
                                     "stream_url": self.stream_url,
                                     "elapsed_seconds": (datetime.utcnow() - self.last_data_time).total_seconds()
                                 }, level="WARNING")
@@ -47,14 +49,14 @@ class Recorder:
                         log_event("recording_finished", {"file_name": self.file_name, "stream_url": self.stream_url})
                     else:
                         log_event("stream_unavailable", {"http_status": response.status})
-        except Exception as e:
+        except Exception as e: # pylint: disable=broad-except
             log_event('recording_error', {"error": str(e)}, level="ERROR")
-            pprint(e)
         finally:
             self.is_recording = False
             self.end_recording()
 
     def end_recording(self):
+        """Rename the temporary file to a finished file"""
         if os.path.exists(self.file_path):
             finished_file = self.file_path.replace('.tmp', '')
             os.rename(self.file_path, finished_file)
@@ -64,4 +66,5 @@ class Recorder:
             })
 
     def is_active(self):
+        """Check if the recorder is currently recording a stream"""
         return self.is_recording

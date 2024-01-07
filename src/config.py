@@ -1,3 +1,5 @@
+"""Module for loading configuration values from command line arguments, environment variables and defaults"""
+
 import argparse
 import os
 from dotenv import load_dotenv
@@ -17,6 +19,7 @@ DEFAULTS = {
 }
 
 def parse_arguments():
+    """Parse command line arguments"""
     parser = argparse.ArgumentParser(description='Icecast Recorder Service')
     parser.add_argument('--server-host', help='Server host name with protocol')
     parser.add_argument('--server-port', type=int, help='Server port number')
@@ -29,6 +32,7 @@ def parse_arguments():
     return vars(parser.parse_args())
 
 def load_configuration():
+    """Get values from command line arguments, environment variables and defaults"""
     cmd_args = parse_arguments()
 
     # Configuration is established using a priority: CommandLine > EnvironmentVars > Defaults

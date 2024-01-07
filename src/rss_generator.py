@@ -1,12 +1,11 @@
-from yattag import Doc
+"""Generates an RSS feed from the files in the output directory"""
 import os
-from utils import generate_file_hash, file_hash_to_id
 from datetime import datetime
 from yattag import Doc
-import os
 from utils import generate_file_hash, file_hash_to_id
 
 def generate_rss_feed(files, output_directory, server_host):
+    """Generates an RSS feed from the files in the output directory"""
     doc, tag, text = Doc().tagtext()
 
     doc.asis('<?xml version="1.0" encoding="UTF-8"?>')
