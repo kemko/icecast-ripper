@@ -16,6 +16,7 @@ DEFAULTS = {
     'check_interval': 60,
     'timeout_connect': 10,
     'timeout_read': 30,
+    'log_level': 'info'
 }
 
 def parse_arguments():
@@ -29,6 +30,7 @@ def parse_arguments():
     parser.add_argument('--check-interval', type=int, help='Interval to check the stream in seconds')
     parser.add_argument('--timeout-connect', type=int, help='Timeout for connecting to the stream in seconds')
     parser.add_argument('--timeout-read', type=int, help='Read timeout in seconds')
+    parser.add_argument('--log-level', help='Log level')
     return vars(parser.parse_args())
 
 def load_configuration():
@@ -43,7 +45,8 @@ def load_configuration():
         'output_directory': cmd_args['output_directory'] or os.getenv('OUTPUT_DIRECTORY') or DEFAULTS['output_directory'],
         'check_interval': cmd_args['check_interval'] or os.getenv('CHECK_INTERVAL') or DEFAULTS['check_interval'],
         'timeout_connect': cmd_args['timeout_connect'] or os.getenv('TIMEOUT_CONNECT') or DEFAULTS['timeout_connect'],
-        'timeout_read': cmd_args['timeout_read'] or os.getenv('TIMEOUT_READ') or DEFAULTS['timeout_read']
+        'timeout_read': cmd_args['timeout_read'] or os.getenv('TIMEOUT_READ') or DEFAULTS['timeout_read'],
+        'log_level': cmd_args['log_level'] or os.getenv('LOG_LEVEL') or DEFAULTS['log_level']
     }
 
     # Converting string paths to absolute paths
