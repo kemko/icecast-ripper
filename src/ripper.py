@@ -1,12 +1,12 @@
-"""Recorder class for recording a stream to a file"""
+"""Ripper class for recording a stream to a file"""
 import os
 from datetime import datetime, timedelta
 import aiohttp
 from logger import log_event
 from utils import sanitize_filename
 
-class Recorder: # pylint: disable=too-many-instance-attributes
-    """Recorder class for recording a stream to a file"""
+class Ripper: # pylint: disable=too-many-instance-attributes
+    """Ripper class for recording a stream to a file"""
     def __init__(self, stream_url, output_directory, timeout_connect=10, timeout_read=30):
         self.stream_url = stream_url
         self.output_directory = output_directory
@@ -74,5 +74,5 @@ class Recorder: # pylint: disable=too-many-instance-attributes
             })
 
     def is_active(self):
-        """Check if the recorder is currently recording a stream"""
+        """Check if the ripper is currently recording a stream"""
         return self.is_recording

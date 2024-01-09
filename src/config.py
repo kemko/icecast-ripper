@@ -21,7 +21,7 @@ DEFAULTS = {
 
 def parse_arguments():
     """Parse command line arguments"""
-    parser = argparse.ArgumentParser(description='Icecast Recorder Service')
+    parser = argparse.ArgumentParser(description='Icecast Ripper Service')
     parser.add_argument('--server-host', help='Server host name with protocol')
     parser.add_argument('--server-port', type=int, help='Server port number')
     parser.add_argument('--stream-url', help='URL of the Icecast stream to monitor and record')

@@ -1,22 +1,22 @@
-"""Checking the stream status and starting the recorder"""
+"""Checking the stream status and starting the ripper"""
 import asyncio
 from aiohttp import ClientSession, ClientTimeout
-from recorder import Recorder
+from ripper import Ripper
 from logger import log_event
 
 class StreamChecker:
-    """Checking the stream status and starting the recorder"""
+    """Checking the stream status and starting the ripper"""
     def __init__(self, stream_url, check_interval, timeout_connect, output_directory, timeout_read=30): # pylint: disable=too-many-arguments
         self.stream_url = stream_url
         self.check_interval = check_interval
         self.timeout_connect = timeout_connect
         self.timeout_read = timeout_read
         self.output_directory = output_directory
-        self.recorder = None
+        self.ripper = None
         self.is_stream_live = False
 
     async def check_stream(self, session):
-        """Check if the stream is live and start the recorder if needed"""
+        """Check if the stream is live and start the ripper if needed"""
         try:
             timeout = ClientTimeout(connect=self.timeout_connect)
             async with session.get(self.stream_url, timeout=timeout, allow_redirects=True) as response:
@@ -38,8 +38,8 @@ class StreamChecker:
             async with ClientSession() as session:
                 await self.check_stream(session)
 
-                if self.is_stream_live and (self.recorder is None or not self.recorder.is_active()):
-                    self.recorder = Recorder(self.stream_url, self.output_directory, self.timeout_read)
-                    await self.recorder.start_recording()
+                if self.is_stream_live and (self.ripper is None or not self.ripper.is_active()):
+                    self.ripper = Ripper(self.stream_url, self.output_directory, self.timeout_read)
+                    await self.ripper.start_recording()
 
             await asyncio.sleep(int(self.check_interval))

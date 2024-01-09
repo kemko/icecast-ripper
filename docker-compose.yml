@@ -1,8 +1,8 @@
 version: '3'
 
 services:
-  icecast-recorder:
-    image: ghcr.io/kemko/icecast-recorder:master
+  icecast-ripper:
+    image: ghcr.io/kemko/icecast-ripper:master
     ports:
       - "8080:8080"
     environment:

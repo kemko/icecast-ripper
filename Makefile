@@ -1,5 +1,5 @@
 run:
- @echo "Starting Icecast Recorder Service"
+ @echo "Starting Icecast Ripper Service"
  python src/main.py
 
 test:
@@ -7,12 +7,12 @@ test:
  python -m unittest discover -s tests/
 
 build:
- @echo "Building Docker image for Icecast Recorder Service"
- docker build -t icecast-recorder .
+ @echo "Building Docker image for Icecast Ripper Service"
+ docker build -t icecast-ripper .
 
 docker-run: build
- @echo "Running Icecast Recorder Service in a Docker container"
- docker run -p 8080:8080 --env-file .env.example icecast-recorder
+ @echo "Running Icecast Ripper Service in a Docker container"
+ docker run -p 8080:8080 --env-file .env.example icecast-ripper
 
 clean:
  @echo "Cleaning up pycache and .pyc files"
