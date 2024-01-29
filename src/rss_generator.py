@@ -9,7 +9,12 @@ def generate_rss_feed(files, output_directory, server_host):
     doc, tag, text = Doc().tagtext()
 
     doc.asis('<?xml version="1.0" encoding="UTF-8"?>')
-    with tag('rss', version='2.0'):
+    with tag('rss'):
+        doc.attr(
+            ('version', '2.0'),
+            ('xmlns:itunes', 'http://www.itunes.com/dtds/podcast-1.0.dtd'),
+            ('xmlns:content', 'http://purl.org/rss/1.0/modules/content/'),
+        )
         with tag('channel'):
             with tag('title'):
                 text('Icecast Stream Recordings')
