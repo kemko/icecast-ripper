@@ -17,6 +17,8 @@ def generate_rss_feed(files, output_directory, server_host):
                 text('The latest recordings from the Icecast server.')
             with tag('link'):
                 text(server_host)
+            with tag('itunes:block'):
+                text('yes')
 
             for file_name in files:
                 file_path = os.path.join(output_directory, file_name)
