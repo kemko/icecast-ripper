@@ -10,7 +10,7 @@ def db_init(db_name='recorded_file_hashes.db'):
 
     config = load_configuration()
 
-    conn = sqlite3.connect(config.output_directory + db_name)
+    conn = sqlite3.connect(config.output_directory + '/' + db_name)
     conn.execute("CREATE TABLE IF NOT EXISTS file_hashes (file_path TEXT PRIMARY KEY, file_hash TEXT)")
 
     return conn
