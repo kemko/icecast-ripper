@@ -38,7 +38,7 @@ def generate_rss_feed(files, output_directory, server_host):
                     with tag('guid', isPermaLink='false'):
                         text(file_id)
                     with tag('pubDate'):
-                        pub_date = datetime.utcfromtimestamp(os.path.getctime(file_path)).strftime('%a, %d %b %Y %H:%M:%S UTC')
+                        pub_date = datetime.fromtimestamp(os.path.getctime(file_path)).strftime('%a, %d %b %Y %H:%M:%S UTC')
                         text(pub_date)
 
     return doc.getvalue()
