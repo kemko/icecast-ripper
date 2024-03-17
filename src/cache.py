@@ -1,13 +1,16 @@
 """cache"""
 
 import sqlite3
+from config import load_configuration
 
-def db_init(db_path='/tmp/recorded_file_hashes.db'):
+def db_init(db_name='recorded_file_hashes.db'):
     """
     Connect to the database and return the connection object.
     """
 
-    conn = sqlite3.connect(db_path)
+    config = load_configuration()
+
+    conn = sqlite3.connect(config.output_directory + db_name)
     conn.execute("CREATE TABLE IF NOT EXISTS file_hashes (file_path TEXT PRIMARY KEY, file_hash TEXT)")
 
     return conn
