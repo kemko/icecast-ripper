@@ -1,6 +1,7 @@
 """Utility functions for the application"""
 import hashlib
 import string
+from cache import get_cached_hash, cache_hash
 
 def sanitize_filename(filename):
     """
@@ -15,11 +16,21 @@ def generate_file_hash(file_path):
     """
     Generate a hash for file contents to uniquely identify files.
     """
+
+    file_hash = get_cached_hash(file_path)
+
+    if file_hash:
+        return file_hash
+
     hasher = hashlib.sha256()
     with open(file_path, 'rb') as f:
         while chunk := f.read(8192):
             hasher.update(chunk)
-    return hasher.hexdigest()
+
+    file_hash = hasher.hexdigest()
+    cache_hash(file_path, file_hash)
+
+    return file_hash
 
 def file_hash_to_id(file_hash, length=32):
     """
