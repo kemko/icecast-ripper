@@ -9,12 +9,12 @@ import (
 
 	"github.com/gorilla/feeds"
 	"github.com/kemko/icecast-ripper/internal/config"
-	"github.com/kemko/icecast-ripper/internal/database"
+	"github.com/kemko/icecast-ripper/internal/filestore"
 )
 
 // Generator creates RSS feeds
 type Generator struct {
-	fileStore      *database.FileStore
+	fileStore      *filestore.Store
 	feedBaseURL    string
 	recordingsPath string
 	feedTitle      string
@@ -22,7 +22,7 @@ type Generator struct {
 }
 
 // New creates a new RSS Generator instance
-func New(fileStore *database.FileStore, cfg *config.Config, title, description string) *Generator {
+func New(fileStore *filestore.Store, cfg *config.Config, title, description string) *Generator {
 	baseURL := cfg.RSSFeedURL
 	if baseURL == "" {
 		slog.Warn("RSS_FEED_URL not set, using default")

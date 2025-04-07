@@ -13,14 +13,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kemko/icecast-ripper/internal/database"
+	"github.com/kemko/icecast-ripper/internal/filestore"
 	"github.com/kemko/icecast-ripper/internal/hash"
 )
 
 type Recorder struct {
 	tempPath       string
 	recordingsPath string
-	db             *database.FileStore
+	db             *filestore.Store
 	client         *http.Client
 	mu             sync.Mutex
 	isRecording    bool
@@ -28,7 +28,7 @@ type Recorder struct {
 	streamName     string
 }
 
-func New(tempPath, recordingsPath string, db *database.FileStore, streamName string) (*Recorder, error) {
+func New(tempPath, recordingsPath string, db *filestore.Store, streamName string) (*Recorder, error) {
 	for _, dir := range []string{tempPath, recordingsPath} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return nil, fmt.Errorf("failed to create directory %s: %w", dir, err)

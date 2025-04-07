@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/kemko/icecast-ripper/internal/config"
-	"github.com/kemko/icecast-ripper/internal/database"
+	"github.com/kemko/icecast-ripper/internal/filestore"
 	"github.com/kemko/icecast-ripper/internal/logger"
 	"github.com/kemko/icecast-ripper/internal/recorder"
 	"github.com/kemko/icecast-ripper/internal/rss"
@@ -51,7 +51,7 @@ func main() {
 		storePath = changeExtension(cfg.DatabasePath, ".json")
 	}
 
-	fileStore, err := database.InitDB(storePath)
+	fileStore, err := filestore.Init(storePath)
 	if err != nil {
 		slog.Error("Failed to initialize file store", "error", err)
 		os.Exit(1)

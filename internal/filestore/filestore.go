@@ -1,4 +1,5 @@
-package database
+// Package filestore provides functionality for storing and retrieving metadata about recorded files
+package filestore
 
 import (
 	"encoding/json"
@@ -21,18 +22,18 @@ type RecordedFile struct {
 	RecordedAt time.Time     `json:"recordedAt"`
 }
 
-// FileStore represents an in-memory store with optional file persistence
-type FileStore struct {
+// Store represents an in-memory store with optional file persistence
+type Store struct {
 	files     map[string]*RecordedFile
 	storePath string
 	mu        sync.RWMutex
 }
 
-// InitDB initializes a new FileStore
-func InitDB(dataSourceName string) (*FileStore, error) {
+// Init initializes a new Store
+func Init(dataSourceName string) (*Store, error) {
 	slog.Info("Initializing file store", "path", dataSourceName)
 
-	fs := &FileStore{
+	fs := &Store{
 		files:     make(map[string]*RecordedFile),
 		storePath: dataSourceName,
 	}
@@ -46,7 +47,7 @@ func InitDB(dataSourceName string) (*FileStore, error) {
 	return fs, nil
 }
 
-func (fs *FileStore) loadFromFile() error {
+func (fs *Store) loadFromFile() error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
@@ -73,7 +74,7 @@ func (fs *FileStore) loadFromFile() error {
 	return nil
 }
 
-func (fs *FileStore) saveToFile() error {
+func (fs *Store) saveToFile() error {
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
 
@@ -105,7 +106,7 @@ func (fs *FileStore) saveToFile() error {
 }
 
 // AddRecordedFile adds a file to the store
-func (fs *FileStore) AddRecordedFile(filename, hash string, fileSize int64, duration time.Duration, recordedAt time.Time) (int64, error) {
+func (fs *Store) AddRecordedFile(filename, hash string, fileSize int64, duration time.Duration, recordedAt time.Time) (int64, error) {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
@@ -128,7 +129,7 @@ func (fs *FileStore) AddRecordedFile(filename, hash string, fileSize int64, dura
 }
 
 // GetRecordedFiles retrieves all recorded files, ordered by recording date descending
-func (fs *FileStore) GetRecordedFiles(limit int) ([]RecordedFile, error) {
+func (fs *Store) GetRecordedFiles(limit int) ([]RecordedFile, error) {
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
 
@@ -149,6 +150,6 @@ func (fs *FileStore) GetRecordedFiles(limit int) ([]RecordedFile, error) {
 }
 
 // Close ensures all data is persisted
-func (fs *FileStore) Close() error {
+func (fs *Store) Close() error {
 	return fs.saveToFile()
 }
