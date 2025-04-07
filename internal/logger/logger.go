@@ -6,25 +6,30 @@ import (
 	"strings"
 )
 
-// Setup initializes the structured logger.
+// Setup initializes the structured logger with the specified log level
 func Setup(logLevel string) {
-	var level slog.Level
-	switch strings.ToLower(logLevel) {
-	case "debug":
-		level = slog.LevelDebug
-	case "warn":
-		level = slog.LevelWarn
-	case "error":
-		level = slog.LevelError
-	default:
-		level = slog.LevelInfo
-	}
+	level := parseLogLevel(logLevel)
 
-	opts := &slog.HandlerOptions{
+	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: level,
-	}
-	handler := slog.NewJSONHandler(os.Stdout, opts) // Or slog.NewTextHandler
-	slog.SetDefault(slog.New(handler))
+	})
+
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
 
 	slog.Info("Logger initialized", "level", level.String())
+}
+
+// parseLogLevel converts a string log level to slog.Level
+func parseLogLevel(level string) slog.Level {
+	switch strings.ToLower(level) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }

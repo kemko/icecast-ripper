@@ -2,6 +2,7 @@ package recorder
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -16,26 +17,22 @@ import (
 	"github.com/kemko/icecast-ripper/internal/hash"
 )
 
-// Recorder handles downloading the stream and saving recordings.
 type Recorder struct {
 	tempPath       string
 	recordingsPath string
 	db             *database.FileStore
 	client         *http.Client
-	mu             sync.Mutex // Protects access to isRecording
+	mu             sync.Mutex
 	isRecording    bool
-	cancelFunc     context.CancelFunc // To stop the current recording
-	streamName     string             // Name of the stream being recorded
+	cancelFunc     context.CancelFunc
+	streamName     string
 }
 
-// New creates a new Recorder instance.
 func New(tempPath, recordingsPath string, db *database.FileStore, streamName string) (*Recorder, error) {
-	// Ensure temp and recordings directories exist
-	if err := os.MkdirAll(tempPath, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create temp directory %s: %w", tempPath, err)
-	}
-	if err := os.MkdirAll(recordingsPath, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create recordings directory %s: %w", recordingsPath, err)
+	for _, dir := range []string{tempPath, recordingsPath} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, fmt.Errorf("failed to create directory %s: %w", dir, err)
+		}
 	}
 
 	return &Recorder{
@@ -43,76 +40,65 @@ func New(tempPath, recordingsPath string, db *database.FileStore, streamName str
 		recordingsPath: recordingsPath,
 		db:             db,
 		streamName:     streamName,
-		client: &http.Client{
-			// Use a longer timeout for downloading the stream
-			Timeout: 0, // No timeout for the download itself, rely on context cancellation
-		},
+		client:         &http.Client{Timeout: 0}, // No timeout, rely on context cancellation
 	}, nil
 }
 
-// IsRecording returns true if a recording is currently in progress.
 func (r *Recorder) IsRecording() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.isRecording
 }
 
-// StartRecording starts downloading the stream to a temporary file.
-// It runs asynchronously and returns immediately.
 func (r *Recorder) StartRecording(ctx context.Context, streamURL string) error {
 	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if r.isRecording {
-		r.mu.Unlock()
-		return fmt.Errorf("recording already in progress")
+		return errors.New("recording already in progress")
 	}
-	// Create a new context that can be cancelled to stop this specific recording
+
 	recordingCtx, cancel := context.WithCancel(ctx)
 	r.cancelFunc = cancel
 	r.isRecording = true
-	r.mu.Unlock()
 
 	slog.Info("Starting recording", "url", streamURL)
-
-	go r.recordStream(recordingCtx, streamURL) // Run in a goroutine
+	go r.recordStream(recordingCtx, streamURL)
 
 	return nil
 }
 
-// StopRecording stops the current recording if one is in progress.
 func (r *Recorder) StopRecording() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	if r.isRecording && r.cancelFunc != nil {
 		slog.Info("Stopping current recording")
-		r.cancelFunc() // Signal the recording goroutine to stop
-		// The lock ensures that isRecording is set to false *after* the goroutine finishes
+		r.cancelFunc()
 	}
 }
 
-// recordStream performs the actual download and processing.
 func (r *Recorder) recordStream(ctx context.Context, streamURL string) {
 	startTime := time.Now()
 	var tempFilePath string
 
-	// Defer setting isRecording to false and cleaning up cancelFunc
 	defer func() {
 		r.mu.Lock()
 		r.isRecording = false
 		r.cancelFunc = nil
 		r.mu.Unlock()
 		slog.Info("Recording process finished")
-		// Clean up temp file if it still exists (e.g., due to early error)
+
 		if tempFilePath != "" {
 			if _, err := os.Stat(tempFilePath); err == nil {
-				slog.Warn("Removing leftover temporary file", "path", tempFilePath)
+				slog.Warn("Cleaning up temporary file", "path", tempFilePath)
 				if err := os.Remove(tempFilePath); err != nil {
-					slog.Error("Failed to remove temporary file", "path", tempFilePath, "error", err)
+					slog.Error("Failed to remove temporary file", "error", err)
 				}
 			}
 		}
 	}()
 
-	// Create temporary file
 	tempFile, err := os.CreateTemp(r.tempPath, "recording-*.tmp")
 	if err != nil {
 		slog.Error("Failed to create temporary file", "error", err)
@@ -121,77 +107,54 @@ func (r *Recorder) recordStream(ctx context.Context, streamURL string) {
 	tempFilePath = tempFile.Name()
 	slog.Debug("Created temporary file", "path", tempFilePath)
 
-	// Download stream
 	bytesWritten, err := r.downloadStream(ctx, streamURL, tempFile)
-	// Close the file explicitly *before* hashing and moving
+
 	if closeErr := tempFile.Close(); closeErr != nil {
-		slog.Error("Failed to close temporary file", "path", tempFilePath, "error", closeErr)
-		// If download also failed, prioritize that error
+		slog.Error("Failed to close temporary file", "error", closeErr)
 		if err == nil {
-			err = closeErr // Report closing error if download was ok
+			err = closeErr
 		}
 	}
 
+	// Handle context cancellation or download errors
 	if err != nil {
-		// Check if the error was due to context cancellation (graceful stop)
-		if ctx.Err() == context.Canceled {
-			slog.Info("Recording stopped via cancellation.")
-			// Proceed to process the partially downloaded file
+		if errors.Is(err, context.Canceled) {
+			slog.Info("Recording stopped via cancellation")
 		} else {
 			slog.Error("Failed to download stream", "error", err)
-			// No need to keep the temp file if download failed unexpectedly
-			if err := os.Remove(tempFilePath); err != nil {
-				slog.Error("Failed to remove temporary file after download error", "path", tempFilePath, "error", err)
-			}
-			tempFilePath = "" // Prevent deferred cleanup from trying again
 			return
 		}
 	}
 
-	// If no bytes were written (e.g., stream closed immediately or cancelled before data), discard.
+	// Skip empty recordings
 	if bytesWritten == 0 {
-		slog.Warn("No data written to temporary file, discarding.", "path", tempFilePath)
-		if err := os.Remove(tempFilePath); err != nil {
-			slog.Error("Failed to remove temporary file after no data written", "path", tempFilePath, "error", err)
-		}
-		tempFilePath = "" // Prevent deferred cleanup
+		slog.Warn("No data written, discarding recording")
 		return
 	}
 
+	// Process successful recording
 	endTime := time.Now()
 	duration := endTime.Sub(startTime)
-
-	// Generate final filename (e.g., based on timestamp)
-	finalFilename := fmt.Sprintf("recording_%s.mp3", startTime.Format("20060102_150405")) // Assuming mp3, adjust if needed
-	finalFilename = sanitizeFilename(finalFilename)                                       // Ensure filename is valid
+	finalFilename := fmt.Sprintf("recording_%s.mp3", startTime.Format("20060102_150405"))
+	finalFilename = sanitizeFilename(finalFilename)
 	finalPath := filepath.Join(r.recordingsPath, finalFilename)
 
-	// Move temporary file to final location
 	if err := os.Rename(tempFilePath, finalPath); err != nil {
-		slog.Error("Failed to move temporary file to final location", "temp", tempFilePath, "final", finalPath, "error", err)
-		if err := os.Remove(tempFilePath); err != nil {
-			slog.Error("Failed to remove temporary file after move error", "path", tempFilePath, "error", err)
-		}
-		tempFilePath = "" // Prevent deferred cleanup
+		slog.Error("Failed to move recording to final location", "error", err)
 		return
 	}
-	tempFilePath = "" // File moved, clear path to prevent deferred cleanup
+
+	tempFilePath = "" // Prevent cleanup in defer
 	slog.Info("Recording saved", "path", finalPath, "size", bytesWritten, "duration", duration)
 
-	// Generate GUID for this recording using the new metadata-based approach
 	guid := hash.GenerateGUID(r.streamName, startTime, finalFilename)
-
-	// Add record to database
-	_, err = r.db.AddRecordedFile(finalFilename, guid, bytesWritten, duration, startTime)
-	if err != nil {
-		slog.Error("Failed to add recording to database", "filename", finalFilename, "guid", guid, "error", err)
-		// Consider how to handle this - maybe retry later? For now, just log.
+	if _, err = r.db.AddRecordedFile(finalFilename, guid, bytesWritten, duration, startTime); err != nil {
+		slog.Error("Failed to add recording to database", "error", err)
 	}
 }
 
-// downloadStream handles the HTTP GET request and writes the body to the writer.
 func (r *Recorder) downloadStream(ctx context.Context, streamURL string, writer io.Writer) (int64, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", streamURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, streamURL, nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -199,9 +162,8 @@ func (r *Recorder) downloadStream(ctx context.Context, streamURL string, writer 
 
 	resp, err := r.client.Do(req)
 	if err != nil {
-		// Check if context was cancelled
-		if ctx.Err() == context.Canceled {
-			return 0, ctx.Err()
+		if errors.Is(err, context.Canceled) {
+			return 0, err
 		}
 		return 0, fmt.Errorf("failed to connect to stream: %w", err)
 	}
@@ -215,31 +177,31 @@ func (r *Recorder) downloadStream(ctx context.Context, streamURL string, writer 
 		return 0, fmt.Errorf("unexpected status code: %s", resp.Status)
 	}
 
-	slog.Debug("Connected to stream, starting download", "url", streamURL)
-	// Copy the response body to the writer (temp file)
-	// io.Copy will block until EOF or an error (including context cancellation via the request)
+	slog.Debug("Connected to stream, downloading", "url", streamURL)
 	bytesWritten, err := io.Copy(writer, resp.Body)
+
 	if err != nil {
-		// Check if the error is due to context cancellation
-		if ctx.Err() == context.Canceled {
-			slog.Info("Stream download cancelled.")
-			return bytesWritten, ctx.Err() // Return context error
+		if errors.Is(err, context.Canceled) {
+			slog.Info("Stream download cancelled")
+			return bytesWritten, ctx.Err()
 		}
-		// Check for common stream disconnection errors (might need refinement)
-		if err == io.ErrUnexpectedEOF || strings.Contains(err.Error(), "connection reset by peer") || strings.Contains(err.Error(), "broken pipe") {
-			slog.Info("Stream disconnected gracefully (EOF or reset)", "bytes_written", bytesWritten)
-			return bytesWritten, nil // Treat as normal end of stream
+
+		// Handle common stream disconnections gracefully
+		if errors.Is(err, io.ErrUnexpectedEOF) ||
+		   strings.Contains(err.Error(), "connection reset by peer") ||
+		   strings.Contains(err.Error(), "broken pipe") {
+			slog.Info("Stream disconnected normally", "bytesWritten", bytesWritten)
+			return bytesWritten, nil
 		}
+
 		return bytesWritten, fmt.Errorf("failed during stream copy: %w", err)
 	}
 
-	slog.Info("Stream download finished (EOF)", "bytes_written", bytesWritten)
+	slog.Info("Stream download finished normally", "bytesWritten", bytesWritten)
 	return bytesWritten, nil
 }
 
-// sanitizeFilename removes potentially problematic characters from filenames.
 func sanitizeFilename(filename string) string {
-	// Replace common problematic characters
 	replacer := strings.NewReplacer(
 		" ", "_",
 		"/", "-",
@@ -253,12 +215,5 @@ func sanitizeFilename(filename string) string {
 		"|", "-",
 	)
 	cleaned := replacer.Replace(filename)
-	// Trim leading/trailing underscores/hyphens/dots
-	cleaned = strings.Trim(cleaned, "_-. ")
-	// Limit length if necessary (though less common on modern filesystems)
-	// const maxLen = 200
-	// if len(cleaned) > maxLen {
-	// 	cleaned = cleaned[:maxLen]
-	// }
-	return cleaned
+	return strings.Trim(cleaned, "_-. ")
 }

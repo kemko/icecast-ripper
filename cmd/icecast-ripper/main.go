@@ -21,37 +21,33 @@ import (
 	"github.com/kemko/icecast-ripper/internal/streamchecker"
 )
 
+const version = "0.2.0"
+
 func main() {
 	// Load configuration
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		_, err2 := fmt.Fprintf(os.Stderr, "Error loading configuration: %v\n", err)
-		if err2 != nil {
-			return
-		}
+		fmt.Fprintf(os.Stderr, "Error loading configuration: %v\n", err)
 		os.Exit(1)
 	}
 
 	// Setup logger
 	logger.Setup(cfg.LogLevel)
+	slog.Info("Starting icecast-ripper", "version", version)
 
-	slog.Info("Starting icecast-ripper", "version", "0.1.0") // Updated version
-
-	// Validate essential config
+	// Validate essential configuration
 	if cfg.StreamURL == "" {
-		slog.Error("Configuration error: STREAM_URL must be set.")
+		slog.Error("Configuration error: STREAM_URL must be set")
 		os.Exit(1)
 	}
 
-	// Extract stream name from URL for use in GUID generation
+	// Extract stream name for GUID generation
 	streamName := extractStreamName(cfg.StreamURL)
-	slog.Info("Using stream name for GUID generation", "name", streamName)
+	slog.Info("Using stream name for identification", "name", streamName)
 
-	// Initialize file store (replacing SQLite database)
-	// If DatabasePath is provided, use it for JSON persistence
+	// Initialize file store
 	storePath := ""
 	if cfg.DatabasePath != "" {
-		// Change extension from .db to .json for the file store
 		storePath = changeExtension(cfg.DatabasePath, ".json")
 	}
 
@@ -60,89 +56,81 @@ func main() {
 		slog.Error("Failed to initialize file store", "error", err)
 		os.Exit(1)
 	}
+	// Properly handle Close() error
 	defer func() {
 		if err := fileStore.Close(); err != nil {
-			slog.Error("Failed to close file store", "error", err)
+			slog.Error("Error closing file store", "error", err)
 		}
 	}()
 
-	// Create a context that cancels on shutdown signal
+	// Create main context that cancels on shutdown signal
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop() // Ensure context is cancelled even if not explicitly stopped later
+	defer stop()
 
-	// --- Initialize components ---
-	slog.Info("Initializing components...")
+	// Initialize components
 	streamChecker := streamchecker.New(cfg.StreamURL)
 	recorderInstance, err := recorder.New(cfg.TempPath, cfg.RecordingsPath, fileStore, streamName)
 	if err != nil {
 		slog.Error("Failed to initialize recorder", "error", err)
 		os.Exit(1)
 	}
+
 	rssGenerator := rss.New(fileStore, cfg, "Icecast Recordings", "Recordings from stream: "+cfg.StreamURL)
 	schedulerInstance := scheduler.New(cfg.CheckInterval, streamChecker, recorderInstance)
 	httpServer := server.New(cfg, rssGenerator)
 
-	// --- Start components ---
+	// Start services
 	slog.Info("Starting services...")
-	schedulerInstance.Start(ctx) // Pass the main context to the scheduler
+
+	// Start the scheduler which will check for streams and record them
+	schedulerInstance.Start(ctx)
+
+	// Start the HTTP server for RSS feed
 	if err := httpServer.Start(); err != nil {
 		slog.Error("Failed to start HTTP server", "error", err)
-		stop() // Trigger shutdown if server fails to start
+		stop()
 		os.Exit(1)
 	}
 
 	slog.Info("Application started successfully. Press Ctrl+C to shut down.")
 
-	// Wait for context cancellation (due to signal)
+	// Wait for termination signal
 	<-ctx.Done()
-
 	slog.Info("Shutting down application...")
 
-	// --- Graceful shutdown ---
-	// Create a shutdown context with a timeout
+	// Graceful shutdown
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 
-	// Stop scheduler first (prevents new recordings)
-	schedulerInstance.Stop() // This waits for the scheduler loop to exit
+	// First stop the scheduler to prevent new recordings
+	schedulerInstance.Stop()
 
-	// Stop the recorder (ensures any ongoing recording is finalized or cancelled)
-	// Note: Stopping the scheduler doesn't automatically stop an *ongoing* recording.
-	// We need to explicitly stop the recorder if we want it to terminate immediately.
-	recorderInstance.StopRecording() // Signal any active recording to stop
+	// Then stop any ongoing recording
+	recorderInstance.StopRecording()
 
-	// Stop the HTTP server
+	// Finally, stop the HTTP server
 	if err := httpServer.Stop(shutdownCtx); err != nil {
 		slog.Warn("HTTP server shutdown error", "error", err)
 	}
 
-	// File store is closed by the deferred function call
-
 	slog.Info("Application shut down gracefully")
 }
 
-// extractStreamName extracts a meaningful stream name from the URL.
-// This is used as part of the GUID generation.
+// extractStreamName extracts a meaningful identifier from the URL
 func extractStreamName(streamURL string) string {
-	// Try to parse the URL
 	parsedURL, err := url.Parse(streamURL)
 	if err != nil {
-		// If we can't parse it, just use the hostname part or the whole URL
 		return streamURL
 	}
 
-	// Use the host as the base name
 	streamName := parsedURL.Hostname()
 
-	// If there's a path that appears to be a stream identifier, use that too
 	if parsedURL.Path != "" && parsedURL.Path != "/" {
-		// Remove leading slash and use just the first part of the path if it has multiple segments
 		path := parsedURL.Path
 		if path[0] == '/' {
 			path = path[1:]
 		}
 
-		// Take just the first segment of the path
 		pathSegments := filepath.SplitList(path)
 		if len(pathSegments) > 0 {
 			streamName += "_" + pathSegments[0]

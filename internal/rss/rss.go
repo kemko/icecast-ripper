@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/gorilla/feeds"
@@ -11,24 +12,25 @@ import (
 	"github.com/kemko/icecast-ripper/internal/database"
 )
 
-// Generator creates RSS feeds.
+// Generator creates RSS feeds
 type Generator struct {
 	fileStore      *database.FileStore
-	feedBaseURL    string // Base URL for links in the feed (e.g., http://server.com/recordings/)
-	recordingsPath string // Local path to recordings (needed for file info, maybe not directly used in feed)
+	feedBaseURL    string
+	recordingsPath string
 	feedTitle      string
 	feedDesc       string
 }
 
-// New creates a new RSS Generator instance.
+// New creates a new RSS Generator instance
 func New(fileStore *database.FileStore, cfg *config.Config, title, description string) *Generator {
-	// Ensure the base URL for recordings ends with a slash
-	baseURL := cfg.RSSFeedURL // This should be the URL base for *serving* files
+	baseURL := cfg.RSSFeedURL
 	if baseURL == "" {
-		slog.Warn("RSS_FEED_URL not set, RSS links might be incomplete. Using placeholder.")
-		baseURL = "http://localhost:8080/recordings/" // Placeholder
+		slog.Warn("RSS_FEED_URL not set, using default")
+		baseURL = "http://localhost:8080/recordings/"
 	}
-	if baseURL[len(baseURL)-1:] != "/" {
+
+	// Ensure base URL ends with a slash
+	if !strings.HasSuffix(baseURL, "/") {
 		baseURL += "/"
 	}
 
@@ -41,46 +43,50 @@ func New(fileStore *database.FileStore, cfg *config.Config, title, description s
 	}
 }
 
-// GenerateFeed fetches recordings and produces the RSS feed XML as a byte slice.
+// GenerateFeed produces the RSS feed XML as a byte slice
 func (g *Generator) GenerateFeed(maxItems int) ([]byte, error) {
-	slog.Debug("Generating RSS feed", "maxItems", maxItems)
 	recordings, err := g.fileStore.GetRecordedFiles(maxItems)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get recorded files for RSS feed: %w", err)
+		return nil, fmt.Errorf("failed to get recorded files: %w", err)
 	}
 
-	now := time.Now()
 	feed := &feeds.Feed{
 		Title:       g.feedTitle,
 		Link:        &feeds.Link{Href: g.feedBaseURL},
 		Description: g.feedDesc,
-		Created:     now,
+		Created:     time.Now(),
 	}
+
+	feed.Items = make([]*feeds.Item, 0, len(recordings))
 
 	for _, rec := range recordings {
 		fileURL, err := url.JoinPath(g.feedBaseURL, rec.Filename)
 		if err != nil {
-			slog.Error("Failed to create file URL for RSS item", "filename", rec.Filename, "error", err)
-			continue // Skip this item if URL creation fails
+			slog.Error("Failed to create file URL", "filename", rec.Filename, "error", err)
+			continue
 		}
 
 		item := &feeds.Item{
 			Title:       fmt.Sprintf("Recording %s", rec.RecordedAt.Format("2006-01-02 15:04")),
 			Link:        &feeds.Link{Href: fileURL},
-			Description: fmt.Sprintf("Icecast stream recording from %s. Duration: %s.", rec.RecordedAt.Format(time.RFC1123), rec.Duration.String()),
+			Description: fmt.Sprintf("Icecast stream recording from %s. Duration: %s",
+			              rec.RecordedAt.Format(time.RFC1123), rec.Duration.String()),
 			Created:     rec.RecordedAt,
 			Id:          rec.Hash,
-			Enclosure:   &feeds.Enclosure{Url: fileURL, Length: rec.FileSize, Type: "audio/mpeg"},
+			Enclosure:   &feeds.Enclosure{
+				Url:    fileURL,
+				Length: fmt.Sprintf("%d", rec.FileSize), // Convert int64 to string
+				Type:   "audio/mpeg",
+			},
 		}
 		feed.Items = append(feed.Items, item)
 	}
 
-	// Create RSS 2.0 feed
 	rssFeed, err := feed.ToRss()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate RSS feed: %w", err)
 	}
 
-	slog.Debug("RSS feed generated successfully", "item_count", len(feed.Items))
+	slog.Debug("RSS feed generated", "itemCount", len(feed.Items))
 	return []byte(rssFeed), nil
 }

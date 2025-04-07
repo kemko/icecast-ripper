@@ -1,14 +1,12 @@
 package config
 
 import (
-	"strings"
 	"time"
 
 	"github.com/spf13/viper"
 )
 
-// Config stores all configuration for the application.
-// The values are read by viper from environment variables or a config file.
+// Config stores all configuration for the application
 type Config struct {
 	StreamURL      string        `mapstructure:"STREAM_URL"`
 	CheckInterval  time.Duration `mapstructure:"CHECK_INTERVAL"`
@@ -16,54 +14,33 @@ type Config struct {
 	TempPath       string        `mapstructure:"TEMP_PATH"`
 	DatabasePath   string        `mapstructure:"DATABASE_PATH"`
 	ServerAddress  string        `mapstructure:"SERVER_ADDRESS"`
-	RSSFeedURL     string        `mapstructure:"RSS_FEED_URL"` // Base URL for the RSS feed links
+	RSSFeedURL     string        `mapstructure:"RSS_FEED_URL"`
 	LogLevel       string        `mapstructure:"LOG_LEVEL"`
 }
 
-// LoadConfig reads configuration from environment variables.
+// LoadConfig reads configuration from environment variables
 func LoadConfig() (*Config, error) {
-	viper.AutomaticEnv()
-	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v := viper.New()
+	v.AutomaticEnv()
 
 	// Set default values
-	viper.SetDefault("STREAM_URL", "")
-	viper.SetDefault("CHECK_INTERVAL", "1m")
-	viper.SetDefault("RECORDINGS_PATH", "./recordings")
-	viper.SetDefault("TEMP_PATH", "./temp")
-	viper.SetDefault("DATABASE_PATH", "./icecast-ripper.db")
-	viper.SetDefault("SERVER_ADDRESS", ":8080")
-	viper.SetDefault("RSS_FEED_URL", "http://localhost:8080/rss") // Example default
-	viper.SetDefault("LOG_LEVEL", "info")
+	defaults := map[string]interface{}{
+		"STREAM_URL":      "",
+		"CHECK_INTERVAL":  "1m",
+		"RECORDINGS_PATH": "./recordings",
+		"TEMP_PATH":       "./temp",
+		"DATABASE_PATH":   "./icecast-ripper.db",
+		"SERVER_ADDRESS":  ":8080",
+		"RSS_FEED_URL":    "http://localhost:8080/rss",
+		"LOG_LEVEL":       "info",
+	}
+
+	for key, value := range defaults {
+		v.SetDefault(key, value)
+	}
 
 	var config Config
-	// Bind environment variables to struct fields
-	if err := viper.BindEnv("STREAM_URL"); err != nil {
-		return nil, err
-	}
-	if err := viper.BindEnv("CHECK_INTERVAL"); err != nil {
-		return nil, err
-	}
-	if err := viper.BindEnv("RECORDINGS_PATH"); err != nil {
-		return nil, err
-	}
-	if err := viper.BindEnv("TEMP_PATH"); err != nil {
-		return nil, err
-	}
-	if err := viper.BindEnv("DATABASE_PATH"); err != nil {
-		return nil, err
-	}
-	if err := viper.BindEnv("SERVER_ADDRESS"); err != nil {
-		return nil, err
-	}
-	if err := viper.BindEnv("RSS_FEED_URL"); err != nil {
-		return nil, err
-	}
-	if err := viper.BindEnv("LOG_LEVEL"); err != nil {
-		return nil, err
-	}
-
-	// Unmarshal the config
-	if err := viper.Unmarshal(&config); err != nil {
+	if err := v.Unmarshal(&config); err != nil {
 		return nil, err
 	}
 
