@@ -4,56 +4,52 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 )
 
-const (
-	// hashChunkSize defines how many bytes of the file to read for hashing.
-	// 1MB should be sufficient for uniqueness in most cases while being fast.
-	hashChunkSize = 1 * 1024 * 1024 // 1 MB
-)
-
-// GenerateFileHash generates a SHA256 hash based on the filename and the first `hashChunkSize` bytes of the file content.
-// This avoids reading the entire file for large recordings.
-func GenerateFileHash(filePath string) (string, error) {
+// GenerateGUID generates a unique identifier based on file metadata without reading file content.
+// It uses recording metadata (stream name, recording start time, filename) to create a deterministic GUID.
+func GenerateGUID(streamName string, recordedAt time.Time, filePath string) string {
 	filename := filepath.Base(filePath)
-	slog.Debug("Generating hash", "file", filePath, "chunkSize", hashChunkSize)
 
-	file, err := os.Open(filePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to open file %s for hashing: %w", filePath, err)
-	}
-	defer func() {
-		if err := file.Close(); err != nil {
-			slog.Error("Failed to close file", "path", filePath, "error", err)
-		}
-	}()
+	// Create a unique string combining stream name, recording time (rounded to seconds),
+	// and filename for uniqueness
+	input := fmt.Sprintf("%s:%s:%s",
+		streamName,
+		recordedAt.UTC().Format(time.RFC3339),
+		filename)
 
+	slog.Debug("Generating GUID", "input", input)
+
+	// Hash the combined string to create a GUID
 	hasher := sha256.New()
+	hasher.Write([]byte(input))
+	guid := hex.EncodeToString(hasher.Sum(nil))
 
-	// Include filename in the hash
-	if _, err := hasher.Write([]byte(filename)); err != nil {
-		return "", fmt.Errorf("failed to write filename to hasher: %w", err)
+	slog.Debug("Generated GUID", "file", filePath, "guid", guid)
+	return guid
+}
+
+// GenerateFileHash remains for backward compatibility but is now built on GenerateGUID
+// This uses file metadata from the path and mtime instead of reading file content
+func GenerateFileHash(filePath string) (string, error) {
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to stat file %s: %w", filePath, err)
 	}
 
-	// Read only the first part of the file
-	chunk := make([]byte, hashChunkSize)
-	bytesRead, err := file.Read(chunk)
-	if err != nil && err != io.EOF {
-		return "", fmt.Errorf("failed to read file chunk %s: %w", filePath, err)
-	}
+	// Extract stream name from directory structure if possible, otherwise use parent dir
+	dir := filepath.Dir(filePath)
+	streamName := filepath.Base(dir)
 
-	// Hash the chunk that was read
-	if _, err := hasher.Write(chunk[:bytesRead]); err != nil {
-		return "", fmt.Errorf("failed to write file chunk to hasher: %w", err)
-	}
+	// Use file modification time as a proxy for recording time
+	recordedAt := fileInfo.ModTime()
 
-	hashBytes := hasher.Sum(nil)
-	hashString := hex.EncodeToString(hashBytes)
+	guid := GenerateGUID(streamName, recordedAt, filePath)
 
-	slog.Debug("Generated hash", "file", filePath, "hash", hashString)
-	return hashString, nil
+	slog.Debug("Generated hash using metadata", "file", filePath, "hash", guid)
+	return guid, nil
 }

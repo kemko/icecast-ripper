@@ -20,15 +20,16 @@ import (
 type Recorder struct {
 	tempPath       string
 	recordingsPath string
-	db             *database.DB
+	db             *database.FileStore
 	client         *http.Client
 	mu             sync.Mutex // Protects access to isRecording
 	isRecording    bool
 	cancelFunc     context.CancelFunc // To stop the current recording
+	streamName     string             // Name of the stream being recorded
 }
 
 // New creates a new Recorder instance.
-func New(tempPath, recordingsPath string, db *database.DB) (*Recorder, error) {
+func New(tempPath, recordingsPath string, db *database.FileStore, streamName string) (*Recorder, error) {
 	// Ensure temp and recordings directories exist
 	if err := os.MkdirAll(tempPath, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create temp directory %s: %w", tempPath, err)
@@ -41,6 +42,7 @@ func New(tempPath, recordingsPath string, db *database.DB) (*Recorder, error) {
 		tempPath:       tempPath,
 		recordingsPath: recordingsPath,
 		db:             db,
+		streamName:     streamName,
 		client: &http.Client{
 			// Use a longer timeout for downloading the stream
 			Timeout: 0, // No timeout for the download itself, rely on context cancellation
@@ -159,17 +161,6 @@ func (r *Recorder) recordStream(ctx context.Context, streamURL string) {
 	endTime := time.Now()
 	duration := endTime.Sub(startTime)
 
-	// Generate hash
-	fileHash, err := hash.GenerateFileHash(tempFilePath)
-	if err != nil {
-		slog.Error("Failed to generate file hash", "path", tempFilePath, "error", err)
-		if err := os.Remove(tempFilePath); err != nil {
-			slog.Error("Failed to remove temporary file after hash error", "path", tempFilePath, "error", err)
-		}
-		tempFilePath = "" // Prevent deferred cleanup
-		return
-	}
-
 	// Generate final filename (e.g., based on timestamp)
 	finalFilename := fmt.Sprintf("recording_%s.mp3", startTime.Format("20060102_150405")) // Assuming mp3, adjust if needed
 	finalFilename = sanitizeFilename(finalFilename)                                       // Ensure filename is valid
@@ -187,10 +178,13 @@ func (r *Recorder) recordStream(ctx context.Context, streamURL string) {
 	tempFilePath = "" // File moved, clear path to prevent deferred cleanup
 	slog.Info("Recording saved", "path", finalPath, "size", bytesWritten, "duration", duration)
 
+	// Generate GUID for this recording using the new metadata-based approach
+	guid := hash.GenerateGUID(r.streamName, startTime, finalFilename)
+
 	// Add record to database
-	_, err = r.db.AddRecordedFile(finalFilename, fileHash, bytesWritten, duration, startTime)
+	_, err = r.db.AddRecordedFile(finalFilename, guid, bytesWritten, duration, startTime)
 	if err != nil {
-		slog.Error("Failed to add recording to database", "filename", finalFilename, "hash", fileHash, "error", err)
+		slog.Error("Failed to add recording to database", "filename", finalFilename, "guid", guid, "error", err)
 		// Consider how to handle this - maybe retry later? For now, just log.
 	}
 }

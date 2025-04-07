@@ -35,7 +35,7 @@ type Item struct {
 	Link        string    `xml:"link"`        // Link to the specific recording file
 	Description string    `xml:"description"` // Can include duration, size etc.
 	PubDate     string    `xml:"pubDate"`     // RFC1123Z format of recording time
-	GUID        GUID      `xml:"guid"`        // Unique identifier (using file hash)
+	GUID        GUID      `xml:"guid"`        // Unique identifier (using metadata-based GUID)
 	Enclosure   Enclosure `xml:"enclosure"`   // Describes the media file
 }
 
@@ -56,7 +56,7 @@ type Enclosure struct {
 
 // Generator creates RSS feeds.
 type Generator struct {
-	db             *database.DB
+	fileStore      *database.FileStore
 	feedBaseURL    string // Base URL for links in the feed (e.g., http://server.com/recordings/)
 	recordingsPath string // Local path to recordings (needed for file info, maybe not directly used in feed)
 	feedTitle      string
@@ -64,7 +64,7 @@ type Generator struct {
 }
 
 // New creates a new RSS Generator instance.
-func New(db *database.DB, cfg *config.Config, title, description string) *Generator {
+func New(fileStore *database.FileStore, cfg *config.Config, title, description string) *Generator {
 	// Ensure the base URL for recordings ends with a slash
 	baseURL := cfg.RSSFeedURL // This should be the URL base for *serving* files
 	if baseURL == "" {
@@ -76,7 +76,7 @@ func New(db *database.DB, cfg *config.Config, title, description string) *Genera
 	}
 
 	return &Generator{
-		db:             db,
+		fileStore:      fileStore,
 		feedBaseURL:    baseURL,
 		recordingsPath: cfg.RecordingsPath,
 		feedTitle:      title,
@@ -87,7 +87,7 @@ func New(db *database.DB, cfg *config.Config, title, description string) *Genera
 // GenerateFeed fetches recordings and produces the RSS feed XML as a byte slice.
 func (g *Generator) GenerateFeed(maxItems int) ([]byte, error) {
 	slog.Debug("Generating RSS feed", "maxItems", maxItems)
-	recordings, err := g.db.GetRecordedFiles(maxItems)
+	recordings, err := g.fileStore.GetRecordedFiles(maxItems)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get recorded files for RSS feed: %w", err)
 	}
@@ -106,7 +106,7 @@ func (g *Generator) GenerateFeed(maxItems int) ([]byte, error) {
 			Description: fmt.Sprintf("Icecast stream recording from %s. Duration: %s.", rec.RecordedAt.Format(time.RFC1123), rec.Duration.String()),
 			PubDate:     rec.RecordedAt.Format(time.RFC1123Z), // Use RFC1123Z for pubDate
 			GUID: GUID{
-				IsPermaLink: false, // The hash itself is not a permalink URL
+				IsPermaLink: false, // The guid itself is not a permalink URL
 				Value:       rec.Hash,
 			},
 			Enclosure: Enclosure{

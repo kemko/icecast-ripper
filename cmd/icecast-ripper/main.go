@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -41,15 +43,26 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialize database
-	db, err := database.InitDB(cfg.DatabasePath)
+	// Extract stream name from URL for use in GUID generation
+	streamName := extractStreamName(cfg.StreamURL)
+	slog.Info("Using stream name for GUID generation", "name", streamName)
+
+	// Initialize file store (replacing SQLite database)
+	// If DatabasePath is provided, use it for JSON persistence
+	storePath := ""
+	if cfg.DatabasePath != "" {
+		// Change extension from .db to .json for the file store
+		storePath = changeExtension(cfg.DatabasePath, ".json")
+	}
+
+	fileStore, err := database.InitDB(storePath)
 	if err != nil {
-		slog.Error("Failed to initialize database", "error", err)
+		slog.Error("Failed to initialize file store", "error", err)
 		os.Exit(1)
 	}
 	defer func() {
-		if err := db.Close(); err != nil {
-			slog.Error("Failed to close database", "error", err)
+		if err := fileStore.Close(); err != nil {
+			slog.Error("Failed to close file store", "error", err)
 		}
 	}()
 
@@ -60,12 +73,12 @@ func main() {
 	// --- Initialize components ---
 	slog.Info("Initializing components...")
 	streamChecker := streamchecker.New(cfg.StreamURL)
-	recorderInstance, err := recorder.New(cfg.TempPath, cfg.RecordingsPath, db)
+	recorderInstance, err := recorder.New(cfg.TempPath, cfg.RecordingsPath, fileStore, streamName)
 	if err != nil {
 		slog.Error("Failed to initialize recorder", "error", err)
 		os.Exit(1)
 	}
-	rssGenerator := rss.New(db, cfg, "Icecast Recordings", "Recordings from stream: "+cfg.StreamURL)
+	rssGenerator := rss.New(fileStore, cfg, "Icecast Recordings", "Recordings from stream: "+cfg.StreamURL)
 	schedulerInstance := scheduler.New(cfg.CheckInterval, streamChecker, recorderInstance)
 	httpServer := server.New(cfg, rssGenerator)
 
@@ -103,7 +116,47 @@ func main() {
 		slog.Warn("HTTP server shutdown error", "error", err)
 	}
 
-	// Database is closed by the deferred function call
+	// File store is closed by the deferred function call
 
 	slog.Info("Application shut down gracefully")
+}
+
+// extractStreamName extracts a meaningful stream name from the URL.
+// This is used as part of the GUID generation.
+func extractStreamName(streamURL string) string {
+	// Try to parse the URL
+	parsedURL, err := url.Parse(streamURL)
+	if err != nil {
+		// If we can't parse it, just use the hostname part or the whole URL
+		return streamURL
+	}
+
+	// Use the host as the base name
+	streamName := parsedURL.Hostname()
+
+	// If there's a path that appears to be a stream identifier, use that too
+	if parsedURL.Path != "" && parsedURL.Path != "/" {
+		// Remove leading slash and use just the first part of the path if it has multiple segments
+		path := parsedURL.Path
+		if path[0] == '/' {
+			path = path[1:]
+		}
+
+		// Take just the first segment of the path
+		pathSegments := filepath.SplitList(path)
+		if len(pathSegments) > 0 {
+			streamName += "_" + pathSegments[0]
+		}
+	}
+
+	return streamName
+}
+
+// changeExtension changes a file extension
+func changeExtension(path string, newExt string) string {
+	ext := filepath.Ext(path)
+	if ext == "" {
+		return path + newExt
+	}
+	return path[:len(path)-len(ext)] + newExt
 }
