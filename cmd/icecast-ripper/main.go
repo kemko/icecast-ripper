@@ -24,11 +24,17 @@ import (
 const version = "0.2.0"
 
 func main() {
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	// Load configuration
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading configuration: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("error loading configuration: %w", err)
 	}
 
 	// Setup logger
@@ -37,8 +43,7 @@ func main() {
 
 	// Validate essential configuration
 	if cfg.StreamURL == "" {
-		slog.Error("Configuration error: STREAM_URL must be set")
-		os.Exit(1)
+		return fmt.Errorf("configuration error: STREAM_URL must be set")
 	}
 
 	// Extract stream name for GUID generation
@@ -53,8 +58,7 @@ func main() {
 
 	fileStore, err := filestore.Init(storePath)
 	if err != nil {
-		slog.Error("Failed to initialize file store", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to initialize file store: %w", err)
 	}
 	// Properly handle Close() error
 	defer func() {
@@ -71,8 +75,7 @@ func main() {
 	streamChecker := streamchecker.New(cfg.StreamURL)
 	recorderInstance, err := recorder.New(cfg.TempPath, cfg.RecordingsPath, fileStore, streamName)
 	if err != nil {
-		slog.Error("Failed to initialize recorder", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to initialize recorder: %w", err)
 	}
 
 	rssGenerator := rss.New(fileStore, cfg, "Icecast Recordings", "Recordings from stream: "+cfg.StreamURL)
@@ -87,9 +90,8 @@ func main() {
 
 	// Start the HTTP server for RSS feed
 	if err := httpServer.Start(); err != nil {
-		slog.Error("Failed to start HTTP server", "error", err)
-		stop()
-		os.Exit(1)
+		stop() // Cancel context before returning
+		return fmt.Errorf("failed to start HTTP server: %w", err)
 	}
 
 	slog.Info("Application started successfully. Press Ctrl+C to shut down.")
@@ -114,6 +116,7 @@ func main() {
 	}
 
 	slog.Info("Application shut down gracefully")
+	return nil
 }
 
 // extractStreamName extracts a meaningful identifier from the URL
