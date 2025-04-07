@@ -83,12 +83,12 @@ func (g *Generator) GenerateFeed(maxItems int) ([]byte, error) {
 		}
 
 		item := &feeds.Item{
-			Title:       fmt.Sprintf("Recording %s", rec.RecordedAt.Format("2006-01-02 15:04")),
-			Link:        &feeds.Link{Href: fileURL},
+			Title: fmt.Sprintf("Recording %s", rec.RecordedAt.Format("2006-01-02 15:04")),
+			Link:  &feeds.Link{Href: fileURL},
 			Description: fmt.Sprintf("Icecast stream recording from %s. Duration: %s",
 				rec.RecordedAt.Format(time.RFC1123), rec.Duration.String()),
-			Created:     rec.RecordedAt,
-			Id:          rec.Hash,
+			Created: rec.RecordedAt,
+			Id:      rec.Hash,
 			Enclosure: &feeds.Enclosure{
 				Url:    fileURL,
 				Length: fmt.Sprintf("%d", rec.FileSize),
@@ -149,7 +149,7 @@ func (g *Generator) scanRecordings(maxItems int) ([]RecordingInfo, error) {
 
 		// Calculate an estimated duration based on file size
 		// Assuming ~128kbps MP3 bitrate: 16KB per second
-		estimatedDuration := time.Duration(info.Size() / 16000) * time.Second
+		estimatedDuration := time.Duration(info.Size()/16000) * time.Second
 
 		// Generate a stable hash for the recording
 		filename := filepath.Base(path)
