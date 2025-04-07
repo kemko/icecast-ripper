@@ -12,7 +12,6 @@ type Config struct {
 	CheckInterval  time.Duration `mapstructure:"CHECK_INTERVAL"`
 	RecordingsPath string        `mapstructure:"RECORDINGS_PATH"`
 	TempPath       string        `mapstructure:"TEMP_PATH"`
-	DatabasePath   string        `mapstructure:"DATABASE_PATH"`
 	ServerAddress  string        `mapstructure:"SERVER_ADDRESS"`
 	RSSFeedURL     string        `mapstructure:"RSS_FEED_URL"`
 	LogLevel       string        `mapstructure:"LOG_LEVEL"`
@@ -29,7 +28,6 @@ func LoadConfig() (*Config, error) {
 		"CHECK_INTERVAL":  "1m",
 		"RECORDINGS_PATH": "./recordings",
 		"TEMP_PATH":       "./temp",
-		"DATABASE_PATH":   "./icecast-ripper.db",
 		"SERVER_ADDRESS":  ":8080",
 		"RSS_FEED_URL":    "http://localhost:8080/rss",
 		"LOG_LEVEL":       "info",

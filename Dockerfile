@@ -29,18 +29,17 @@ COPY --from=builder /icecast-ripper /app/icecast-ripper
 # These should ideally be mounted as volumes in production
 RUN mkdir -p /app/recordings /app/temp
 
-# Expose the server port (if different from default, adjust accordingly)
+# Expose the server port
 EXPOSE 8080
 
 # Set default environment variables (can be overridden)
-ENV DATABASE_PATH=/app/icecast-ripper.db
 ENV RECORDINGS_PATH=/app/recordings
 ENV TEMP_PATH=/app/temp
 ENV SERVER_ADDRESS=:8080
 ENV LOG_LEVEL=info
+ENV CHECK_INTERVAL=1m
+ENV RSS_FEED_URL=http://localhost:8080/rss
 # ENV STREAM_URL= # Required: Must be set at runtime
-# ENV CHECK_INTERVAL=1m # Optional: Defaults to 1m
-# ENV RSS_FEED_URL= # Optional: Defaults to http://<container_ip>:8080/rss
 
 # Command to run the application
 ENTRYPOINT ["/app/icecast-ripper"]
