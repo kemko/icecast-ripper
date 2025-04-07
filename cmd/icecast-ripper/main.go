@@ -35,6 +35,12 @@ func main() {
 
 	slog.Info("Starting icecast-ripper", "version", "0.1.0") // Updated version
 
+	// Validate essential config
+	if cfg.StreamURL == "" {
+		slog.Error("Configuration error: STREAM_URL must be set.")
+		os.Exit(1)
+	}
+
 	// Initialize database
 	db, err := database.InitDB(cfg.DatabasePath)
 	if err != nil {

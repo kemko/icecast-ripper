@@ -103,7 +103,9 @@ func (r *Recorder) recordStream(ctx context.Context, streamURL string) {
 		if tempFilePath != "" {
 			if _, err := os.Stat(tempFilePath); err == nil {
 				slog.Warn("Removing leftover temporary file", "path", tempFilePath)
-				os.Remove(tempFilePath)
+				if err := os.Remove(tempFilePath); err != nil {
+					slog.Error("Failed to remove temporary file", "path", tempFilePath, "error", err)
+				}
 			}
 		}
 	}()
@@ -136,7 +138,9 @@ func (r *Recorder) recordStream(ctx context.Context, streamURL string) {
 		} else {
 			slog.Error("Failed to download stream", "error", err)
 			// No need to keep the temp file if download failed unexpectedly
-			os.Remove(tempFilePath)
+			if err := os.Remove(tempFilePath); err != nil {
+				slog.Error("Failed to remove temporary file after download error", "path", tempFilePath, "error", err)
+			}
 			tempFilePath = "" // Prevent deferred cleanup from trying again
 			return
 		}
@@ -145,7 +149,9 @@ func (r *Recorder) recordStream(ctx context.Context, streamURL string) {
 	// If no bytes were written (e.g., stream closed immediately or cancelled before data), discard.
 	if bytesWritten == 0 {
 		slog.Warn("No data written to temporary file, discarding.", "path", tempFilePath)
-		os.Remove(tempFilePath)
+		if err := os.Remove(tempFilePath); err != nil {
+			slog.Error("Failed to remove temporary file after no data written", "path", tempFilePath, "error", err)
+		}
 		tempFilePath = "" // Prevent deferred cleanup
 		return
 	}
@@ -157,8 +163,10 @@ func (r *Recorder) recordStream(ctx context.Context, streamURL string) {
 	fileHash, err := hash.GenerateFileHash(tempFilePath)
 	if err != nil {
 		slog.Error("Failed to generate file hash", "path", tempFilePath, "error", err)
-		os.Remove(tempFilePath) // Clean up if hashing fails
-		tempFilePath = ""       // Prevent deferred cleanup
+		if err := os.Remove(tempFilePath); err != nil {
+			slog.Error("Failed to remove temporary file after hash error", "path", tempFilePath, "error", err)
+		}
+		tempFilePath = "" // Prevent deferred cleanup
 		return
 	}
 
@@ -170,8 +178,10 @@ func (r *Recorder) recordStream(ctx context.Context, streamURL string) {
 	// Move temporary file to final location
 	if err := os.Rename(tempFilePath, finalPath); err != nil {
 		slog.Error("Failed to move temporary file to final location", "temp", tempFilePath, "final", finalPath, "error", err)
-		os.Remove(tempFilePath) // Attempt cleanup of temp file
-		tempFilePath = ""       // Prevent deferred cleanup
+		if err := os.Remove(tempFilePath); err != nil {
+			slog.Error("Failed to remove temporary file after move error", "path", tempFilePath, "error", err)
+		}
+		tempFilePath = "" // Prevent deferred cleanup
 		return
 	}
 	tempFilePath = "" // File moved, clear path to prevent deferred cleanup
@@ -201,7 +211,11 @@ func (r *Recorder) downloadStream(ctx context.Context, streamURL string, writer 
 		}
 		return 0, fmt.Errorf("failed to connect to stream: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Error("Failed to close response body", "error", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("unexpected status code: %s", resp.Status)

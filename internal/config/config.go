@@ -67,11 +67,5 @@ func LoadConfig() (*Config, error) {
 		return nil, err
 	}
 
-	// Ensure required fields are set
-	if config.StreamURL == "" {
-		// Consider returning an error or logging a fatal error if essential config is missing
-		// return nil, errors.New("STREAM_URL environment variable is required")
-	}
-
 	return &config, nil
 }

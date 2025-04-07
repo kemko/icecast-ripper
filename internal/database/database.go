@@ -87,7 +87,11 @@ func (db *DB) GetRecordedFiles(limit int) ([]RecordedFile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query recorded files: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Error("Failed to close rows", "error", err)
+		}
+	}()
 
 	var files []RecordedFile
 	for rows.Next() {

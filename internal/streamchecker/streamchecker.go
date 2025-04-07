@@ -44,7 +44,11 @@ func (c *Checker) IsLive() (bool, error) {
 		slog.Warn("Failed to connect to stream URL during check", "url", c.streamURL, "error", err)
 		return false, nil // Treat connection errors as 'not live'
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Error("Failed to close response body", "error", err)
+		}
+	}()
 
 	// A 200 OK status generally indicates the stream is live and broadcasting.
 	if resp.StatusCode == http.StatusOK {
