@@ -1,22 +1,55 @@
-run:
- @echo "Starting Icecast Ripper Service"
- python src/main.py
+# Simple Makefile for Go project
 
-test:
- @echo "Running tests"
- python -m unittest discover -s tests/
+# Go parameters
+GOCMD=go
+GOBUILD=$(GOCMD) build
+GOCLEAN=$(GOCMD) clean
+GOTEST=$(GOCMD) test
+GOGET=$(GOCMD) get
+GORUN=$(GOCMD) run
+GOLINT=golangci-lint
 
+# Binary name
+BINARY_NAME=icecast-ripper
+BINARY_PATH=./bin/$(BINARY_NAME)
+
+# Source files entrypoint
+MAIN_GO=./cmd/icecast-ripper/main.go
+
+# Default target
+all: build
+
+# Build the application
 build:
- @echo "Building Docker image for Icecast Ripper Service"
- docker build -t icecast-ripper .
+	@echo "Building $(BINARY_NAME)..."
+	$(GOBUILD) -o $(BINARY_PATH) $(MAIN_GO)
+	@echo "$(BINARY_NAME) built successfully."
 
-docker-run: build
- @echo "Running Icecast Ripper Service in a Docker container"
- docker run -p 8080:8080 --env-file .env.example icecast-ripper
+# Run the application
+run: build
+	@echo "Running $(BINARY_NAME)..."
+	$(BINARY_PATH)
 
+# Run linters
+lint:
+	@echo "Running linters..."
+	$(GOLINT) run ./...
+
+# Run tests
+test:
+	@echo "Running tests..."
+	$(GOTEST) -v ./...
+
+# Clean build artifacts
 clean:
- @echo "Cleaning up pycache and .pyc files"
- find . -type d -name pycache -exec rm -r {} +
- find . -type f -name '*.pyc' -delete
+	@echo "Cleaning..."
+	$(GOCLEAN)
+	rm -f $(BINARY_PATH)
+	@echo "Cleaned."
 
-.PHONY: run test build docker-run clean
+# Get dependencies
+deps:
+	@echo "Getting dependencies..."
+	$(GOGET) ./...
+
+.PHONY: all build run lint test clean deps
