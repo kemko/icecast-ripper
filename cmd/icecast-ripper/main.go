@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/kemko/icecast-ripper/internal/config"
-	"github.com/kemko/icecast-ripper/internal/filestore"
 	"github.com/kemko/icecast-ripper/internal/logger"
 	"github.com/kemko/icecast-ripper/internal/recorder"
 	"github.com/kemko/icecast-ripper/internal/rss"
@@ -25,7 +24,10 @@ const version = "0.2.0"
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		_, err := fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		if err != nil {
+			return
+		}
 		os.Exit(1)
 	}
 }
@@ -46,26 +48,9 @@ func run() error {
 		return fmt.Errorf("configuration error: STREAM_URL must be set")
 	}
 
-	// Extract stream name for GUID generation
+	// Extract stream name for identification
 	streamName := extractStreamName(cfg.StreamURL)
 	slog.Info("Using stream name for identification", "name", streamName)
-
-	// Initialize file store
-	storePath := ""
-	if cfg.DatabasePath != "" {
-		storePath = changeExtension(cfg.DatabasePath, ".json")
-	}
-
-	fileStore, err := filestore.Init(storePath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize file store: %w", err)
-	}
-	// Properly handle Close() error
-	defer func() {
-		if err := fileStore.Close(); err != nil {
-			slog.Error("Error closing file store", "error", err)
-		}
-	}()
 
 	// Create main context that cancels on shutdown signal
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -73,12 +58,12 @@ func run() error {
 
 	// Initialize components
 	streamChecker := streamchecker.New(cfg.StreamURL)
-	recorderInstance, err := recorder.New(cfg.TempPath, cfg.RecordingsPath, fileStore, streamName)
+	recorderInstance, err := recorder.New(cfg.TempPath, cfg.RecordingsPath, streamName)
 	if err != nil {
 		return fmt.Errorf("failed to initialize recorder: %w", err)
 	}
 
-	rssGenerator := rss.New(fileStore, cfg, "Icecast Recordings", "Recordings from stream: "+cfg.StreamURL)
+	rssGenerator := rss.New(cfg, "Icecast Recordings", "Recordings from stream: "+cfg.StreamURL, streamName)
 	schedulerInstance := scheduler.New(cfg.CheckInterval, streamChecker, recorderInstance)
 	httpServer := server.New(cfg, rssGenerator)
 
@@ -141,13 +126,4 @@ func extractStreamName(streamURL string) string {
 	}
 
 	return streamName
-}
-
-// changeExtension changes a file extension
-func changeExtension(path string, newExt string) string {
-	ext := filepath.Ext(path)
-	if ext == "" {
-		return path + newExt
-	}
-	return path[:len(path)-len(ext)] + newExt
 }

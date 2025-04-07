@@ -12,15 +12,12 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/kemko/icecast-ripper/internal/filestore"
-	"github.com/kemko/icecast-ripper/internal/hash"
 )
 
+// Recorder handles recording streams
 type Recorder struct {
 	tempPath       string
 	recordingsPath string
-	db             *filestore.Store
 	client         *http.Client
 	mu             sync.Mutex
 	isRecording    bool
@@ -28,7 +25,8 @@ type Recorder struct {
 	streamName     string
 }
 
-func New(tempPath, recordingsPath string, db *filestore.Store, streamName string) (*Recorder, error) {
+// New creates a recorder instance
+func New(tempPath, recordingsPath string, streamName string) (*Recorder, error) {
 	for _, dir := range []string{tempPath, recordingsPath} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return nil, fmt.Errorf("failed to create directory %s: %w", dir, err)
@@ -38,18 +36,19 @@ func New(tempPath, recordingsPath string, db *filestore.Store, streamName string
 	return &Recorder{
 		tempPath:       tempPath,
 		recordingsPath: recordingsPath,
-		db:             db,
 		streamName:     streamName,
 		client:         &http.Client{Timeout: 0}, // No timeout, rely on context cancellation
 	}, nil
 }
 
+// IsRecording returns whether a recording is currently in progress
 func (r *Recorder) IsRecording() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.isRecording
 }
 
+// StartRecording begins recording a stream
 func (r *Recorder) StartRecording(ctx context.Context, streamURL string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -68,6 +67,7 @@ func (r *Recorder) StartRecording(ctx context.Context, streamURL string) error {
 	return nil
 }
 
+// StopRecording stops an in-progress recording
 func (r *Recorder) StopRecording() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -146,11 +146,6 @@ func (r *Recorder) recordStream(ctx context.Context, streamURL string) {
 
 	tempFilePath = "" // Prevent cleanup in defer
 	slog.Info("Recording saved", "path", finalPath, "size", bytesWritten, "duration", duration)
-
-	guid := hash.GenerateGUID(r.streamName, startTime, finalFilename)
-	if _, err = r.db.AddRecordedFile(finalFilename, guid, bytesWritten, duration, startTime); err != nil {
-		slog.Error("Failed to add recording to database", "error", err)
-	}
 }
 
 func (r *Recorder) downloadStream(ctx context.Context, streamURL string, writer io.Writer) (int64, error) {
