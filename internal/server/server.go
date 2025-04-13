@@ -45,7 +45,7 @@ func New(cfg *config.Config, rssGenerator *rss.Generator) *Server {
 
 	// Configure server with sensible timeouts
 	s.server = &http.Server{
-		Addr:         cfg.ServerAddress,
+		Addr:         cfg.BindAddress,
 		Handler:      mux,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
@@ -56,7 +56,7 @@ func New(cfg *config.Config, rssGenerator *rss.Generator) *Server {
 }
 
 // handleRSS generates and serves the RSS feed
-func (s *Server) handleRSS(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleRSS(w http.ResponseWriter, _ *http.Request) {
 	slog.Debug("Serving RSS feed")
 
 	const maxItems = 50

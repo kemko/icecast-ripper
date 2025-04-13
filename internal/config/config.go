@@ -12,8 +12,8 @@ type Config struct {
 	CheckInterval  time.Duration `mapstructure:"CHECK_INTERVAL"`
 	RecordingsPath string        `mapstructure:"RECORDINGS_PATH"`
 	TempPath       string        `mapstructure:"TEMP_PATH"`
-	ServerAddress  string        `mapstructure:"SERVER_ADDRESS"`
-	RSSFeedURL     string        `mapstructure:"RSS_FEED_URL"`
+	BindAddress    string        `mapstructure:"BIND_ADDRESS"`
+	PublicUrl      string        `mapstructure:"PUBLIC_URL"`
 	LogLevel       string        `mapstructure:"LOG_LEVEL"`
 }
 
@@ -28,8 +28,8 @@ func LoadConfig() (*Config, error) {
 		"CHECK_INTERVAL":  "1m",
 		"RECORDINGS_PATH": "./recordings",
 		"TEMP_PATH":       "/tmp",
-		"SERVER_ADDRESS":  ":8080",
-		"RSS_FEED_URL":    "http://localhost:8080/rss",
+		"BIND_ADDRESS":    ":8080",
+		"PUBLIC_URL":      "http://localhost:8080",
 		"LOG_LEVEL":       "info",
 	}
 

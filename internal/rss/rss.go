@@ -35,7 +35,7 @@ type Generator struct {
 
 // New creates a new RSS Generator instance
 func New(cfg *config.Config, title, description, streamName string) *Generator {
-	baseURL := cfg.RSSFeedURL
+	baseURL := cfg.PublicUrl
 	if baseURL == "" {
 		slog.Warn("RSS_FEED_URL not set, using default")
 		baseURL = "http://localhost:8080/recordings/"

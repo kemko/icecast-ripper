@@ -44,14 +44,14 @@ go build -o icecast-ripper ./cmd/icecast-ripper/main.go
 Icecast Ripper is configured through environment variables:
 
 | Environment Variable | Description | Default | Required |
-|---------------------|-------------|---------|----------|
-| `STREAM_URL` | URL of the Icecast stream to monitor | - | Yes |
-| `CHECK_INTERVAL` | Interval between stream checks (e.g., 1m, 30s) | 1m | No |
-| `RECORDINGS_PATH` | Path where recordings are stored | ./recordings | No |
-| `TEMP_PATH` | Path for temporary files | ./temp | No |
-| `SERVER_ADDRESS` | Address and port for the HTTP server | :8080 | No |
-| `RSS_FEED_URL` | Public URL for the RSS feed | <http://localhost:8080/rss> | No |
-| `LOG_LEVEL` | Logging level (debug, info, warn, error) | info | No |
+|----------------------|-------------|---------|----------|
+| `STREAM_URL`         | URL of the Icecast stream to monitor | - | Yes |
+| `CHECK_INTERVAL`     | Interval between stream checks (e.g., 1m, 30s) | 1m | No |
+| `RECORDINGS_PATH`    | Path where recordings are stored | ./recordings | No |
+| `TEMP_PATH`          | Path for temporary files | ./temp | No |
+| `BIND_ADDRESS`       | Address and port for the HTTP server | :8080 | No |
+| `PUBLIC_URL`         | Public URL for the RSS feed | <http://localhost:8080> | No |
+| `LOG_LEVEL`          | Logging level (debug, info, warn, error) | info | No |
 
 ## Docker Compose
 
