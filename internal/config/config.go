@@ -1,20 +1,21 @@
 package config
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/spf13/viper"
 )
 
-// Config stores all configuration for the application
+// Config stores application configuration loaded from environment variables
 type Config struct {
-	StreamURL      string        `mapstructure:"STREAM_URL"`
-	CheckInterval  time.Duration `mapstructure:"CHECK_INTERVAL"`
-	RecordingsPath string        `mapstructure:"RECORDINGS_PATH"`
-	TempPath       string        `mapstructure:"TEMP_PATH"`
-	BindAddress    string        `mapstructure:"BIND_ADDRESS"`
-	PublicUrl      string        `mapstructure:"PUBLIC_URL"`
-	LogLevel       string        `mapstructure:"LOG_LEVEL"`
+	StreamURL      string        `mapstructure:"STREAM_URL"`      // URL of the Icecast stream to record
+	CheckInterval  time.Duration `mapstructure:"CHECK_INTERVAL"`  // How often to check if the stream is live
+	RecordingsPath string        `mapstructure:"RECORDINGS_PATH"` // Where to store recordings
+	TempPath       string        `mapstructure:"TEMP_PATH"`       // Where to store temporary files during recording
+	BindAddress    string        `mapstructure:"BIND_ADDRESS"`    // HTTP server address:port
+	PublicURL      string        `mapstructure:"PUBLIC_URL"`      // Public-facing URL for RSS feed links
+	LogLevel       string        `mapstructure:"LOG_LEVEL"`       // Logging level (debug, info, warn, error)
 }
 
 // LoadConfig reads configuration from environment variables
@@ -39,7 +40,12 @@ func LoadConfig() (*Config, error) {
 
 	var config Config
 	if err := v.Unmarshal(&config); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to parse configuration: %w", err)
+	}
+
+	// Validate required fields
+	if config.StreamURL == "" {
+		return nil, fmt.Errorf("STREAM_URL is required")
 	}
 
 	return &config, nil

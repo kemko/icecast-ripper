@@ -4,8 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"log/slog"
-	"os"
 	"path/filepath"
 	"time"
 )
@@ -26,20 +24,5 @@ func GenerateGUID(streamName string, recordedAt time.Time, filePath string) stri
 	hasher.Write([]byte(input))
 	guid := hex.EncodeToString(hasher.Sum(nil))
 
-	slog.Debug("Generated GUID", "input", input, "guid", guid)
 	return guid
-}
-
-// GenerateFileHash is maintained for backwards compatibility
-// Uses file metadata instead of content
-func GenerateFileHash(filePath string) (string, error) {
-	fileInfo, err := os.Stat(filePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to stat file %s: %w", filePath, err)
-	}
-
-	streamName := filepath.Base(filepath.Dir(filePath))
-	recordedAt := fileInfo.ModTime()
-
-	return GenerateGUID(streamName, recordedAt, filePath), nil
 }

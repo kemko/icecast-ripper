@@ -1,6 +1,7 @@
 package streamchecker
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -10,26 +11,51 @@ import (
 type Checker struct {
 	streamURL string
 	client    *http.Client
+	userAgent string
 }
 
-func New(streamURL string) *Checker {
-	return &Checker{
+// Option represents a functional option for configuring the Checker
+type Option func(*Checker)
+
+// WithUserAgent sets a custom User-Agent header
+func WithUserAgent(userAgent string) Option {
+	return func(c *Checker) {
+		c.userAgent = userAgent
+	}
+}
+
+// New creates a new stream checker with sensible defaults
+func New(streamURL string, opts ...Option) *Checker {
+	c := &Checker{
 		streamURL: streamURL,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
 	}
+
+	// Apply any provided options
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	return c
 }
 
+// IsLive checks if the stream is currently broadcasting
 func (c *Checker) IsLive() (bool, error) {
+	return c.IsLiveWithContext(context.Background())
+}
+
+// IsLiveWithContext checks if the stream is live using the provided context
+func (c *Checker) IsLiveWithContext(ctx context.Context) (bool, error) {
 	slog.Debug("Checking stream status", "url", c.streamURL)
 
-	req, err := http.NewRequest(http.MethodGet, c.streamURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.streamURL, nil)
 	if err != nil {
 		return false, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("User-Agent", "icecast-ripper/1.0")
+	req.Header.Set("User-Agent", c.userAgent)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -51,6 +77,7 @@ func (c *Checker) IsLive() (bool, error) {
 	return false, nil
 }
 
+// GetStreamURL returns the URL being monitored
 func (c *Checker) GetStreamURL() string {
 	return c.streamURL
 }

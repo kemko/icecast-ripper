@@ -43,7 +43,7 @@ func New(cfg *config.Config, rssGenerator *rss.Generator) *Server {
 	fileServer := http.FileServer(http.Dir(absRecordingsPath))
 	mux.Handle("GET /recordings/", http.StripPrefix("/recordings/", fileServer))
 
-	// Configure server with sensible timeouts
+	// Configure server with timeouts for robustness
 	s.server = &http.Server{
 		Addr:         cfg.BindAddress,
 		Handler:      mux,
@@ -68,7 +68,6 @@ func (s *Server) handleRSS(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
 	if _, err = w.Write(feedBytes); err != nil {
 		slog.Error("Failed to write RSS response", "error", err)
 	}
@@ -90,6 +89,5 @@ func (s *Server) Start() error {
 // Stop gracefully shuts down the HTTP server
 func (s *Server) Stop(ctx context.Context) error {
 	slog.Info("Stopping HTTP server")
-
 	return s.server.Shutdown(ctx)
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/kemko/icecast-ripper/internal/streamchecker"
 )
 
+// Scheduler periodically checks if a stream is live and starts recording
 type Scheduler struct {
 	interval      time.Duration
 	checker       *streamchecker.Checker
@@ -20,6 +21,7 @@ type Scheduler struct {
 	parentContext context.Context
 }
 
+// New creates a scheduler instance
 func New(interval time.Duration, checker *streamchecker.Checker, recorder *recorder.Recorder) *Scheduler {
 	return &Scheduler{
 		interval: interval,
@@ -29,6 +31,7 @@ func New(interval time.Duration, checker *streamchecker.Checker, recorder *recor
 	}
 }
 
+// Start begins the scheduling process
 func (s *Scheduler) Start(ctx context.Context) {
 	slog.Info("Starting scheduler", "interval", s.interval.String())
 	s.parentContext = ctx
@@ -36,17 +39,19 @@ func (s *Scheduler) Start(ctx context.Context) {
 	go s.run()
 }
 
+// Stop gracefully shuts down the scheduler
 func (s *Scheduler) Stop() {
 	s.stopOnce.Do(func() {
 		slog.Info("Stopping scheduler...")
 		close(s.stopChan)
 		s.wg.Wait()
-		slog.Info("Scheduler stopped.")
+		slog.Info("Scheduler stopped")
 	})
 }
 
 func (s *Scheduler) run() {
 	defer s.wg.Done()
+
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 
@@ -58,10 +63,9 @@ func (s *Scheduler) run() {
 		case <-ticker.C:
 			s.checkAndRecord()
 		case <-s.stopChan:
-			slog.Info("Scheduler run loop exiting.")
 			return
 		case <-s.parentContext.Done():
-			slog.Info("Parent context cancelled, stopping scheduler.")
+			slog.Info("Parent context cancelled, stopping scheduler")
 			return
 		}
 	}
@@ -69,12 +73,11 @@ func (s *Scheduler) run() {
 
 func (s *Scheduler) checkAndRecord() {
 	if s.recorder.IsRecording() {
-		slog.Debug("Recording in progress, skipping stream check.")
+		slog.Debug("Recording in progress, skipping stream check")
 		return
 	}
 
-	slog.Debug("Checking stream status")
-	isLive, err := s.checker.IsLive()
+	isLive, err := s.checker.IsLiveWithContext(s.parentContext)
 	if err != nil {
 		slog.Warn("Error checking stream status", "error", err)
 		return
