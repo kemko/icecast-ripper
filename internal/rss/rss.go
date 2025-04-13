@@ -56,8 +56,8 @@ func New(cfg *config.Config, title, description, streamName string) *Generator {
 	}
 }
 
-// Pattern to extract timestamp from recording filename (recording_20230505_120000.mp3)
-var recordingPattern = regexp.MustCompile(`recording_(\d{8}_\d{6})\.mp3$`)
+// Pattern to extract timestamp from recording filename (stream.somesite.com_20240907_195622.mp3)
+var recordingPattern = regexp.MustCompile(`([^_]+)_(\d{8}_\d{6})\.mp3$`)
 
 // GenerateFeed produces the RSS feed XML as a byte slice
 func (g *Generator) GenerateFeed(maxItems int) ([]byte, error) {
@@ -128,14 +128,14 @@ func (g *Generator) scanRecordings(maxItems int) ([]RecordingInfo, error) {
 
 		// Extract timestamp from filename
 		matches := recordingPattern.FindStringSubmatch(d.Name())
-		if len(matches) < 2 {
+		if len(matches) < 3 {
 			// Skip files not matching our pattern
 			slog.Debug("Skipping non-conforming filename", "filename", d.Name())
 			return nil
 		}
 
-		// Parse the timestamp
-		timestamp, err := time.Parse("20060102_150405", matches[1])
+		// Parse the timestamp (now in the 3rd capture group [2])
+		timestamp, err := time.Parse("20060102_150405", matches[2])
 		if err != nil {
 			slog.Warn("Failed to parse timestamp from filename", "filename", d.Name(), "error", err)
 			return nil
