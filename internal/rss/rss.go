@@ -26,7 +26,7 @@ type RecordingInfo struct {
 
 // Generator creates RSS feeds
 type Generator struct {
-	feedBaseURL    string
+	baseUrl        string
 	recordingsPath string
 	feedTitle      string
 	feedDesc       string
@@ -35,19 +35,15 @@ type Generator struct {
 
 // New creates a new RSS Generator instance
 func New(cfg *config.Config, title, description, streamName string) *Generator {
-	baseURL := cfg.PublicUrl
-	if baseURL == "" {
-		slog.Warn("RSS_FEED_URL not set, using default")
-		baseURL = "http://localhost:8080/recordings/"
-	}
+	baseUrl := cfg.PublicUrl
 
 	// Ensure base URL ends with a slash
-	if !strings.HasSuffix(baseURL, "/") {
-		baseURL += "/"
+	if !strings.HasSuffix(baseUrl, "/") {
+		baseUrl += "/"
 	}
 
 	return &Generator{
-		feedBaseURL:    baseURL + "rss",
+		baseUrl:        cfg.PublicUrl,
 		recordingsPath: cfg.RecordingsPath,
 		feedTitle:      title,
 		feedDesc:       description,
@@ -67,14 +63,14 @@ func (g *Generator) GenerateFeed(maxItems int) ([]byte, error) {
 
 	feed := &feeds.Feed{
 		Title:       g.feedTitle,
-		Link:        &feeds.Link{Href: g.feedBaseURL},
+		Link:        &feeds.Link{Href: g.baseUrl},
 		Description: g.feedDesc,
 		Created:     time.Now(),
 	}
 
 	feed.Items = make([]*feeds.Item, 0, len(recordings))
 
-	baseURL := g.feedBaseURL
+	baseURL := g.baseUrl
 	baseURL = strings.TrimSuffix(baseURL, "/")
 
 	for _, rec := range recordings {
