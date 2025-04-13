@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/feeds"
 	"github.com/kemko/icecast-ripper/internal/config"
 	"github.com/kemko/icecast-ripper/internal/hash"
+	"github.com/kemko/icecast-ripper/internal/mp3util"
 )
 
 // RecordingInfo contains metadata about a recording
@@ -141,9 +142,13 @@ func (g *Generator) scanRecordings(maxItems int) ([]RecordingInfo, error) {
 			return nil
 		}
 
-		// Calculate an estimated duration based on file size
-		// Assuming ~128kbps MP3 bitrate: 16KB per second
-		estimatedDuration := time.Duration(info.Size()/16000) * time.Second
+		 // Get the actual duration from the MP3 file
+		duration, err := mp3util.GetDuration(path)
+		if err != nil {
+			slog.Warn("Failed to get MP3 duration, falling back to estimation", "filename", d.Name(), "error", err)
+			// Assuming ~128kbps MP3 bitrate: 16KB per second
+			duration = time.Duration(info.Size()/16000) * time.Second
+		}
 
 		// Generate a stable hash for the recording
 		filename := filepath.Base(path)
@@ -153,7 +158,7 @@ func (g *Generator) scanRecordings(maxItems int) ([]RecordingInfo, error) {
 			Filename:   filename,
 			Hash:       fileHash,
 			FileSize:   info.Size(),
-			Duration:   estimatedDuration,
+			Duration:   duration,
 			RecordedAt: timestamp,
 		})
 
