@@ -139,7 +139,7 @@ func (r *Recorder) recordStream(ctx context.Context, streamURL string) {
 	// Process successful recording
 	endTime := time.Now()
 	duration := endTime.Sub(startTime)
-	finalFilename := fmt.Sprintf("recording_%s.mp3", startTime.Format("20060102_150405"))
+	finalFilename := fmt.Sprintf("%s_%s.mp3", r.streamName, startTime.Format("20060102_150405"))
 	finalFilename = sanitizeFilename(finalFilename)
 	finalPath := filepath.Join(r.recordingsPath, finalFilename)
 
@@ -169,13 +169,23 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open source file: %w", err)
 	}
-	defer sourceFile.Close()
+	defer func(sourceFile *os.File) {
+		err := sourceFile.Close()
+		if err != nil {
+			slog.Error("Failed to close source file", "error", err)
+		}
+	}(sourceFile)
 
 	destFile, err := os.Create(dst)
 	if err != nil {
 		return fmt.Errorf("failed to create destination file: %w", err)
 	}
-	defer destFile.Close()
+	defer func(destFile *os.File) {
+		err := destFile.Close()
+		if err != nil {
+			slog.Error("Failed to close destination file", "error", err)
+		}
+	}(destFile)
 
 	if _, err := io.Copy(destFile, sourceFile); err != nil {
 		return fmt.Errorf("failed to copy file contents: %w", err)
@@ -219,8 +229,8 @@ func (r *Recorder) downloadStream(ctx context.Context, streamURL string, writer 
 
 		// Handle common stream disconnections gracefully
 		if errors.Is(err, io.ErrUnexpectedEOF) ||
-		   strings.Contains(err.Error(), "connection reset by peer") ||
-		   strings.Contains(err.Error(), "broken pipe") {
+			strings.Contains(err.Error(), "connection reset by peer") ||
+			strings.Contains(err.Error(), "broken pipe") {
 			slog.Info("Stream disconnected normally", "bytesWritten", bytesWritten)
 			return bytesWritten, nil
 		}
