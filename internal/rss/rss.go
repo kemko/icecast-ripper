@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"net/url"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -75,12 +74,11 @@ func (g *Generator) GenerateFeed(maxItems int) ([]byte, error) {
 
 	feed.Items = make([]*feeds.Item, 0, len(recordings))
 
+	baseURL := g.feedBaseURL
+	baseURL = strings.TrimSuffix(baseURL, "/")
+
 	for _, rec := range recordings {
-		fileURL, err := url.JoinPath(g.feedBaseURL, rec.Filename)
-		if err != nil {
-			slog.Error("Failed to create file URL", "filename", rec.Filename, "error", err)
-			continue
-		}
+		fileURL := fmt.Sprintf("%s/recordings/%s", baseURL, rec.Filename)
 
 		item := &feeds.Item{
 			Title: fmt.Sprintf("Recording %s", rec.RecordedAt.Format("2006-01-02 15:04")),
