@@ -24,13 +24,6 @@ func WithUserAgent(userAgent string) Option {
 	}
 }
 
-// WithTimeout sets a custom timeout for HTTP requests
-func WithTimeout(timeout time.Duration) Option {
-	return func(c *Checker) {
-		c.client.Timeout = timeout
-	}
-}
-
 // New creates a new stream checker with sensible defaults
 func New(streamURL string, opts ...Option) *Checker {
 	c := &Checker{

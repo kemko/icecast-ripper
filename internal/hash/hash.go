@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 )
@@ -26,18 +25,4 @@ func GenerateGUID(streamName string, recordedAt time.Time, filePath string) stri
 	guid := hex.EncodeToString(hasher.Sum(nil))
 
 	return guid
-}
-
-// GenerateFileHash creates a hash from file metadata instead of content
-// This is faster than reading the entire file content
-func GenerateFileHash(filePath string) (string, error) {
-	fileInfo, err := os.Stat(filePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to stat file %s: %w", filePath, err)
-	}
-
-	streamName := filepath.Base(filepath.Dir(filePath))
-	recordedAt := fileInfo.ModTime()
-
-	return GenerateGUID(streamName, recordedAt, filePath), nil
 }

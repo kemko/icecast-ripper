@@ -17,7 +17,12 @@ func GetDuration(filePath string) (time.Duration, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to open MP3 file: %w", err)
 	}
-	defer file.Close()
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+			fmt.Printf("Failed to close file: %v", err)
+		}
+	}(file)
 
 	decoder := mp3.NewDecoder(file)
 	var frame mp3.Frame
