@@ -47,7 +47,7 @@ func New(cfg *config.Config, title, description, streamName string) *Generator {
 	}
 
 	return &Generator{
-		feedBaseURL:    baseURL,
+		feedBaseURL:    baseURL + "rss",
 		recordingsPath: cfg.RecordingsPath,
 		feedTitle:      title,
 		feedDesc:       description,
