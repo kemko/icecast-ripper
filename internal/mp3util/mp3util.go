@@ -73,7 +73,7 @@ func getDurationByBitrateSampling(filePath string, fileSize int64) (time.Duratio
 	}
 
 	if frameCount == 0 {
-		return 0, errors.New("could not read any MP3 frames")
+		return 0, errors.New("could not read any MP3 frames with a valid bitrate")
 	}
 
 	// Calculate average bitrate in bits per second
