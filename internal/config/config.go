@@ -27,7 +27,7 @@ func LoadConfig() (*Config, error) {
 		"STREAM_URL":      "",
 		"CHECK_INTERVAL":  "1m",
 		"RECORDINGS_PATH": "./recordings",
-		"TEMP_PATH":       "./temp",
+		"TEMP_PATH":       "/tmp",
 		"SERVER_ADDRESS":  ":8080",
 		"RSS_FEED_URL":    "http://localhost:8080/rss",
 		"LOG_LEVEL":       "info",

@@ -81,6 +81,7 @@ func (r *Recorder) StopRecording() {
 func (r *Recorder) recordStream(ctx context.Context, streamURL string) {
 	startTime := time.Now()
 	var tempFilePath string
+	var moveSuccessful bool
 
 	defer func() {
 		r.mu.Lock()
@@ -89,13 +90,16 @@ func (r *Recorder) recordStream(ctx context.Context, streamURL string) {
 		r.mu.Unlock()
 		slog.Info("Recording process finished")
 
-		if tempFilePath != "" {
+		// Only clean up temp file if it was successfully moved to final location
+		if tempFilePath != "" && moveSuccessful {
 			if _, err := os.Stat(tempFilePath); err == nil {
-				slog.Warn("Cleaning up temporary file", "path", tempFilePath)
+				slog.Debug("Cleaning up temporary file", "path", tempFilePath)
 				if err := os.Remove(tempFilePath); err != nil {
 					slog.Error("Failed to remove temporary file", "error", err)
 				}
 			}
+		} else if tempFilePath != "" && !moveSuccessful {
+			slog.Warn("Temporary file preserved for manual inspection", "path", tempFilePath)
 		}
 	}()
 
@@ -139,13 +143,45 @@ func (r *Recorder) recordStream(ctx context.Context, streamURL string) {
 	finalFilename = sanitizeFilename(finalFilename)
 	finalPath := filepath.Join(r.recordingsPath, finalFilename)
 
+	// Try rename first (fastest)
 	if err := os.Rename(tempFilePath, finalPath); err != nil {
-		slog.Error("Failed to move recording to final location", "error", err)
-		return
+		slog.Warn("Failed to move recording with rename, trying copy fallback", "error", err)
+
+		// Fallback to manual copy
+		if err := copyFile(tempFilePath, finalPath); err != nil {
+			slog.Error("Failed to move recording to final location", "error", err)
+			return
+		}
+
+		// Copy successful, mark for cleanup
+		moveSuccessful = true
+		slog.Info("Recording copied successfully using fallback method", "path", finalPath)
+	} else {
+		moveSuccessful = true
 	}
 
-	tempFilePath = "" // Prevent cleanup in defer
 	slog.Info("Recording saved", "path", finalPath, "size", bytesWritten, "duration", duration)
+}
+
+// copyFile copies a file from src to dst
+func copyFile(src, dst string) error {
+	sourceFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("failed to open source file: %w", err)
+	}
+	defer sourceFile.Close()
+
+	destFile, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file: %w", err)
+	}
+	defer destFile.Close()
+
+	if _, err := io.Copy(destFile, sourceFile); err != nil {
+		return fmt.Errorf("failed to copy file contents: %w", err)
+	}
+
+	return nil
 }
 
 func (r *Recorder) downloadStream(ctx context.Context, streamURL string, writer io.Writer) (int64, error) {
