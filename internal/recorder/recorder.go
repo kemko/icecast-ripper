@@ -23,22 +23,40 @@ type Recorder struct {
 	isRecording    bool
 	cancelFunc     context.CancelFunc
 	streamName     string
+	userAgent      string
+}
+
+// Option represents a functional option for configuring the recorder
+type Option func(*Recorder)
+
+// WithUserAgent sets a custom User-Agent string for HTTP requests
+func WithUserAgent(userAgent string) Option {
+	return func(r *Recorder) {
+		r.userAgent = userAgent
+	}
 }
 
 // New creates a recorder instance
-func New(tempPath, recordingsPath string, streamName string) (*Recorder, error) {
+func New(tempPath, recordingsPath string, streamName string, opts ...Option) (*Recorder, error) {
 	for _, dir := range []string{tempPath, recordingsPath} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return nil, fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
 	}
 
-	return &Recorder{
+	r := &Recorder{
 		tempPath:       tempPath,
 		recordingsPath: recordingsPath,
 		streamName:     streamName,
-		client:         &http.Client{Timeout: 0}, // No timeout, rely on context cancellation
-	}, nil
+		client:         &http.Client{Timeout: 0}, // No timeout for long-running downloads
+	}
+
+	// Apply any provided options
+	for _, opt := range opts {
+		opt(r)
+	}
+
+	return r, nil
 }
 
 // IsRecording returns whether a recording is currently in progress
@@ -90,19 +108,19 @@ func (r *Recorder) recordStream(ctx context.Context, streamURL string) {
 		r.mu.Unlock()
 		slog.Info("Recording process finished")
 
-		// Only clean up temp file if it was successfully moved to final location
-		if tempFilePath != "" && moveSuccessful {
-			if _, err := os.Stat(tempFilePath); err == nil {
-				slog.Debug("Cleaning up temporary file", "path", tempFilePath)
-				if err := os.Remove(tempFilePath); err != nil {
-					slog.Error("Failed to remove temporary file", "error", err)
-				}
+		if tempFilePath != "" && !moveSuccessful {
+			slog.Warn("Temporary file preserved for inspection", "path", tempFilePath)
+			return
+		}
+
+		if tempFilePath != "" {
+			if err := cleanupTempFile(tempFilePath); err != nil {
+				slog.Error("Failed to remove temporary file", "path", tempFilePath, "error", err)
 			}
-		} else if tempFilePath != "" && !moveSuccessful {
-			slog.Warn("Temporary file preserved for manual inspection", "path", tempFilePath)
 		}
 	}()
 
+	// Create temp file for recording
 	tempFile, err := os.CreateTemp(r.tempPath, "recording-*.tmp")
 	if err != nil {
 		slog.Error("Failed to create temporary file", "error", err)
@@ -120,7 +138,7 @@ func (r *Recorder) recordStream(ctx context.Context, streamURL string) {
 		}
 	}
 
-	// Handle context cancellation or download errors
+	// Handle errors and early termination
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			slog.Info("Recording stopped via cancellation")
@@ -137,61 +155,35 @@ func (r *Recorder) recordStream(ctx context.Context, streamURL string) {
 	}
 
 	// Process successful recording
-	endTime := time.Now()
-	duration := endTime.Sub(startTime)
-	finalFilename := fmt.Sprintf("%s_%s.mp3", r.streamName, startTime.Format("20060102_150405"))
-	finalFilename = sanitizeFilename(finalFilename)
-	finalPath := filepath.Join(r.recordingsPath, finalFilename)
+	finalPath := r.generateFinalPath(startTime)
+	moveSuccessful = r.moveToFinalLocation(tempFilePath, finalPath)
 
-	// Try rename first (fastest)
-	if err := os.Rename(tempFilePath, finalPath); err != nil {
-		slog.Warn("Failed to move recording with rename, trying copy fallback", "error", err)
-
-		// Fallback to manual copy
-		if err := copyFile(tempFilePath, finalPath); err != nil {
-			slog.Error("Failed to move recording to final location", "error", err)
-			return
-		}
-
-		// Copy successful, mark for cleanup
-		moveSuccessful = true
-		slog.Info("Recording copied successfully using fallback method", "path", finalPath)
-	} else {
-		moveSuccessful = true
+	if moveSuccessful {
+		duration := time.Since(startTime)
+		slog.Info("Recording saved", "path", finalPath, "size", bytesWritten, "duration", duration)
 	}
-
-	slog.Info("Recording saved", "path", finalPath, "size", bytesWritten, "duration", duration)
 }
 
-// copyFile copies a file from src to dst
-func copyFile(src, dst string) error {
-	sourceFile, err := os.Open(src)
-	if err != nil {
-		return fmt.Errorf("failed to open source file: %w", err)
-	}
-	defer func(sourceFile *os.File) {
-		err := sourceFile.Close()
-		if err != nil {
-			slog.Error("Failed to close source file", "error", err)
-		}
-	}(sourceFile)
+func (r *Recorder) generateFinalPath(startTime time.Time) string {
+	finalFilename := fmt.Sprintf("%s_%s.mp3", r.streamName, startTime.Format("20060102_150405"))
+	finalFilename = sanitizeFilename(finalFilename)
+	return filepath.Join(r.recordingsPath, finalFilename)
+}
 
-	destFile, err := os.Create(dst)
-	if err != nil {
-		return fmt.Errorf("failed to create destination file: %w", err)
-	}
-	defer func(destFile *os.File) {
-		err := destFile.Close()
-		if err != nil {
-			slog.Error("Failed to close destination file", "error", err)
-		}
-	}(destFile)
-
-	if _, err := io.Copy(destFile, sourceFile); err != nil {
-		return fmt.Errorf("failed to copy file contents: %w", err)
+func (r *Recorder) moveToFinalLocation(tempPath, finalPath string) bool {
+	// Try rename first (fastest)
+	if err := os.Rename(tempPath, finalPath); err == nil {
+		return true
 	}
 
-	return nil
+	// Fallback to manual copy
+	if err := copyFile(tempPath, finalPath); err != nil {
+		slog.Error("Failed to move recording to final location", "error", err)
+		return false
+	}
+
+	slog.Info("Recording copied successfully using fallback method")
+	return true
 }
 
 func (r *Recorder) downloadStream(ctx context.Context, streamURL string, writer io.Writer) (int64, error) {
@@ -199,7 +191,7 @@ func (r *Recorder) downloadStream(ctx context.Context, streamURL string, writer 
 	if err != nil {
 		return 0, fmt.Errorf("failed to create request: %w", err)
 	}
-	req.Header.Set("User-Agent", "icecast-ripper/1.0")
+	req.Header.Set("User-Agent", r.userAgent)
 
 	resp, err := r.client.Do(req)
 	if err != nil {
@@ -208,11 +200,7 @@ func (r *Recorder) downloadStream(ctx context.Context, streamURL string, writer 
 		}
 		return 0, fmt.Errorf("failed to connect to stream: %w", err)
 	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			slog.Error("Failed to close response body", "error", err)
-		}
-	}()
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("unexpected status code: %s", resp.Status)
@@ -228,9 +216,7 @@ func (r *Recorder) downloadStream(ctx context.Context, streamURL string, writer 
 		}
 
 		// Handle common stream disconnections gracefully
-		if errors.Is(err, io.ErrUnexpectedEOF) ||
-			strings.Contains(err.Error(), "connection reset by peer") ||
-			strings.Contains(err.Error(), "broken pipe") {
+		if isNormalDisconnect(err) {
 			slog.Info("Stream disconnected normally", "bytesWritten", bytesWritten)
 			return bytesWritten, nil
 		}
@@ -240,6 +226,41 @@ func (r *Recorder) downloadStream(ctx context.Context, streamURL string, writer 
 
 	slog.Info("Stream download finished normally", "bytesWritten", bytesWritten)
 	return bytesWritten, nil
+}
+
+func isNormalDisconnect(err error) bool {
+	return errors.Is(err, io.ErrUnexpectedEOF) ||
+		strings.Contains(err.Error(), "connection reset by peer") ||
+		strings.Contains(err.Error(), "broken pipe")
+}
+
+func cleanupTempFile(path string) error {
+	if _, err := os.Stat(path); err == nil {
+		slog.Debug("Cleaning up temporary file", "path", path)
+		return os.Remove(path)
+	}
+	return nil
+}
+
+// copyFile copies a file from src to dst
+func copyFile(src, dst string) error {
+	sourceFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("failed to open source file: %w", err)
+	}
+	defer sourceFile.Close()
+
+	destFile, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file: %w", err)
+	}
+	defer destFile.Close()
+
+	if _, err := io.Copy(destFile, sourceFile); err != nil {
+		return fmt.Errorf("failed to copy file contents: %w", err)
+	}
+
+	return nil
 }
 
 func sanitizeFilename(filename string) string {

@@ -1,102 +1,89 @@
 # Icecast Ripper
 
-A Go application that monitors and records Icecast audio streams. It detects when streams go live, automatically records the audio content, and generates an RSS feed of recordings.
+A lightweight Go application that automatically monitors Icecast audio streams, records them when they go live, and serves recordings via an RSS feed for podcast clients.
 
 ## Features
 
-- **Automatic Stream Monitoring**: Periodically checks if a stream is active
-- **Intelligent Recording**: Records audio streams when they become active
-- **RSS Feed Generation**: Provides an RSS feed of recorded streams
-- **Web Interface**: Simple HTTP server for accessing recordings and RSS feed
-- **Docker Support**: Run easily in containers with Docker and Docker Compose
-- **Configurable**: Set recording paths, check intervals, and more via environment variables
+- **Smart Stream Detection**: Monitors Icecast streams and detects when they go live
+- **Automatic Recording**: Records live streams to MP3 files with timestamps
+- **Podcast-Ready RSS Feed**: Generates an RSS feed compatible with podcast clients
+- **Web Server**: Built-in HTTP server for accessing recordings and RSS feed
+- **Containerized**: Ready to run with Docker and Docker Compose
+- **Configurable**: Easy configuration via environment variables
 
-## Installation
+## Quick Start
 
-### Binary Installation
-
-1. Download the latest release from the [GitHub releases page](https://github.com/kemko/icecast-ripper/releases)
-2. Extract the binary to a location in your PATH
-3. Run the binary with the required configuration (see Configuration section)
-
-### Docker Installation
-
-Pull the Docker image:
+### Using Docker
 
 ```bash
-docker pull ghcr.io/kemko/icecast-ripper:master
+docker run -d \
+  --name icecast-ripper \
+  -p 8080:8080 \
+  -e STREAM_URL=http://example.com:8000/stream \
+  -v ./recordings:/recordings \
+  ghcr.io/kemko/icecast-ripper:latest
 ```
 
-Or use Docker Compose (see the Docker Compose section below).
+### Using Docker Compose
 
-### Building From Source
+```yaml
+services:
+  icecast-ripper:
+    image: ghcr.io/kemko/icecast-ripper:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - STREAM_URL=http://example.com:8000/stream
+      - PUBLIC_URL=https://your-domain.com  # For RSS feed links
+    volumes:
+      - ./recordings:/recordings
+```
 
-Requires Go 1.24 or higher.
+### Running the Binary
+
+Download the latest release and run:
 
 ```bash
-git clone https://github.com/kemko/icecast-ripper.git
-cd icecast-ripper
-go build -o icecast-ripper ./cmd/icecast-ripper/main.go
+export STREAM_URL=http://example.com:8000/stream
+./icecast-ripper
 ```
 
 ## Configuration
 
-Icecast Ripper is configured through environment variables:
+Configure Icecast Ripper with these environment variables:
 
-| Environment Variable | Description | Default | Required |
-|----------------------|-------------|---------|----------|
-| `STREAM_URL`         | URL of the Icecast stream to monitor | - | Yes |
-| `CHECK_INTERVAL`     | Interval between stream checks (e.g., 1m, 30s) | 1m | No |
-| `RECORDINGS_PATH`    | Path where recordings are stored | ./recordings | No |
-| `TEMP_PATH`          | Path for temporary files | ./temp | No |
-| `BIND_ADDRESS`       | Address and port for the HTTP server | :8080 | No |
-| `PUBLIC_URL`         | Public URL for the RSS feed | <http://localhost:8080> | No |
-| `LOG_LEVEL`          | Logging level (debug, info, warn, error) | info | No |
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `STREAM_URL` | URL of the Icecast stream to monitor | - | Yes |
+| `CHECK_INTERVAL` | How often to check if the stream is live | 1m | No |
+| `RECORDINGS_PATH` | Where to store recordings | ./recordings | No |
+| `TEMP_PATH` | Where to store temporary files | /tmp | No |
+| `BIND_ADDRESS` | HTTP server address:port | :8080 | No |
+| `PUBLIC_URL` | Public URL for RSS feed links | <http://localhost:8080> | No |
+| `LOG_LEVEL` | Logging level (debug, info, warn, error) | info | No |
 
-## Docker Compose
+## Endpoints
 
-Create a `docker-compose.yml` file:
+- `GET /rss` - RSS feed of recordings (for podcast apps)
+- `GET /recordings/` - Direct access to stored recordings
 
-```yaml
----
-services:
-  icecast-ripper:
-    image: ghcr.io/kemko/icecast-ripper:master
-    ports:
-      - "8080:8080"
-    environment:
-      - STREAM_URL=http://example.com/stream
-      - CHECK_INTERVAL=1m
-      - RECORDINGS_PATH=/records
-      - TEMP_PATH=/app/temp
-      - SERVER_ADDRESS=:8080
-      - RSS_FEED_URL=http://localhost:8080/rss
-      - LOG_LEVEL=info
-    volumes:
-      - ./records:/records
-      - ./temp:/app/temp
-      - ./data:/app/data
-```
+## Building From Source
 
-Run with:
+Requires Go 1.22 or higher:
 
 ```bash
-docker-compose up -d
+git clone https://github.com/kemko/icecast-ripper.git
+cd icecast-ripper
+make build
 ```
 
-## Usage
+## How It Works
 
-1. Start the application with the required configuration
-2. The application will monitor the stream at the specified interval
-3. When the stream becomes active, recording starts automatically
-4. Access the RSS feed at `http://localhost:8080/rss` (or the configured URL)
-5. Access the recordings directly via the web interface
-
-## API Endpoints
-
-- `GET /` - Lists all recordings
-- `GET /rss` - RSS feed of recordings
-- `GET /recordings/{filename}` - Download a specific recording
+1. The application checks if the specified Icecast stream is live
+2. When the stream is detected as live, recording begins
+3. Recording continues until the stream ends or is interrupted
+4. Recordings are saved with timestamps in the configured directory
+5. The RSS feed is automatically updated with new recordings
 
 ## License
 

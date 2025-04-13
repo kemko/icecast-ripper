@@ -20,63 +20,66 @@ import (
 	"github.com/kemko/icecast-ripper/internal/streamchecker"
 )
 
-const version = "0.2.0"
+const version = "0.3.0"
 
 func main() {
 	if err := run(); err != nil {
-		_, err := fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		if err != nil {
-			return
-		}
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
 func run() error {
-	// Load configuration
+	// Load and validate configuration
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		return fmt.Errorf("error loading configuration: %w", err)
+		return fmt.Errorf("configuration error: %w", err)
 	}
 
-	// Setup logger
-	logger.Setup(cfg.LogLevel)
+	// Setup logger with text format for better human readability
+	logger.Setup(cfg.LogLevel, logger.Text)
 	slog.Info("Starting icecast-ripper", "version", version)
-
-	// Validate essential configuration
-	if cfg.StreamURL == "" {
-		return fmt.Errorf("configuration error: STREAM_URL must be set")
-	}
 
 	// Extract stream name for identification
 	streamName := extractStreamName(cfg.StreamURL)
-	slog.Info("Using stream name for identification", "name", streamName)
+	slog.Info("Using stream identifier", "name", streamName)
 
-	// Create main context that cancels on shutdown signal
+	// Create shutdown context
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Create common User-Agent for all HTTP requests
+	userAgent := fmt.Sprintf("icecast-ripper/%s", version)
+
 	// Initialize components
-	streamChecker := streamchecker.New(cfg.StreamURL)
-	recorderInstance, err := recorder.New(cfg.TempPath, cfg.RecordingsPath, streamName)
+	streamChecker := streamchecker.New(
+		cfg.StreamURL,
+		streamchecker.WithUserAgent(userAgent),
+	)
+
+	recorderInstance, err := recorder.New(
+		cfg.TempPath,
+		cfg.RecordingsPath,
+		streamName,
+		recorder.WithUserAgent(userAgent),
+	)
 	if err != nil {
-		return fmt.Errorf("failed to initialize recorder: %w", err)
+		return fmt.Errorf("recorder initialization failed: %w", err)
 	}
 
-	rssGenerator := rss.New(cfg, "Icecast Recordings", "Recordings from stream: "+cfg.StreamURL, streamName)
+	feedTitle := "Icecast Recordings"
+	feedDesc := "Recordings from stream: " + cfg.StreamURL
+	rssGenerator := rss.New(cfg, feedTitle, feedDesc, streamName)
+
 	schedulerInstance := scheduler.New(cfg.CheckInterval, streamChecker, recorderInstance)
 	httpServer := server.New(cfg, rssGenerator)
 
 	// Start services
-	slog.Info("Starting services...")
-
-	// Start the scheduler which will check for streams and record them
 	schedulerInstance.Start(ctx)
 
-	// Start the HTTP server for RSS feed
 	if err := httpServer.Start(); err != nil {
 		stop() // Cancel context before returning
-		return fmt.Errorf("failed to start HTTP server: %w", err)
+		return fmt.Errorf("HTTP server failed to start: %w", err)
 	}
 
 	slog.Info("Application started successfully. Press Ctrl+C to shut down.")
@@ -85,17 +88,14 @@ func run() error {
 	<-ctx.Done()
 	slog.Info("Shutting down application...")
 
-	// Graceful shutdown
+	// Graceful shutdown with timeout
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 
-	// First stop the scheduler to prevent new recordings
+	// Stop components in reverse order of dependency
 	schedulerInstance.Stop()
-
-	// Then stop any ongoing recording
 	recorderInstance.StopRecording()
 
-	// Finally, stop the HTTP server
 	if err := httpServer.Stop(shutdownCtx); err != nil {
 		slog.Warn("HTTP server shutdown error", "error", err)
 	}
@@ -104,7 +104,7 @@ func run() error {
 	return nil
 }
 
-// extractStreamName extracts a meaningful identifier from the URL
+// extractStreamName derives a meaningful identifier from the stream URL
 func extractStreamName(streamURL string) string {
 	parsedURL, err := url.Parse(streamURL)
 	if err != nil {

@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -26,12 +25,11 @@ func GenerateGUID(streamName string, recordedAt time.Time, filePath string) stri
 	hasher.Write([]byte(input))
 	guid := hex.EncodeToString(hasher.Sum(nil))
 
-	slog.Debug("Generated GUID", "input", input, "guid", guid)
 	return guid
 }
 
-// GenerateFileHash is maintained for backwards compatibility
-// Uses file metadata instead of content
+// GenerateFileHash creates a hash from file metadata instead of content
+// This is faster than reading the entire file content
 func GenerateFileHash(filePath string) (string, error) {
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
