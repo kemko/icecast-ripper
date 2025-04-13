@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"math"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -89,11 +90,14 @@ func (g *Generator) createFeedItems(recordings []RecordingInfo) []*feeds.Item {
 	for _, rec := range recordings {
 		fileURL := fmt.Sprintf("%s/recordings/%s", baseURL, rec.Filename)
 
+		// Round duration to the nearest second
+		roundedDuration := time.Duration(math.Round(float64(rec.Duration)/float64(time.Second))) * time.Second
+
 		item := &feeds.Item{
 			Title: fmt.Sprintf("Recording %s", rec.RecordedAt.Format("2006-01-02 15:04")),
 			Link:  &feeds.Link{Href: fileURL},
 			Description: fmt.Sprintf("Icecast stream recording from %s. Duration: %s",
-				rec.RecordedAt.Format(time.RFC1123), rec.Duration.String()),
+				rec.RecordedAt.Format(time.RFC1123), roundedDuration.String()),
 			Created: rec.RecordedAt,
 			Id:      rec.Hash,
 			Enclosure: &feeds.Enclosure{
