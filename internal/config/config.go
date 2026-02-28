@@ -24,7 +24,7 @@ func LoadConfig() (*Config, error) {
 	v.AutomaticEnv()
 
 	// Set default values
-	defaults := map[string]interface{}{
+	defaults := map[string]any{
 		"STREAM_URL":      "",
 		"CHECK_INTERVAL":  "1m",
 		"RECORDINGS_PATH": "./recordings",
