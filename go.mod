@@ -1,6 +1,6 @@
 module github.com/kemko/icecast-ripper
 
-go 1.24.2
+go 1.26
 
 require (
 	github.com/gorilla/feeds v1.2.0
