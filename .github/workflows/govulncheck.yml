@@ -1,0 +1,27 @@
+name: govulncheck
+
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+  schedule:
+    - cron: "0 0 * * 1"
+
+jobs:
+  govulncheck:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: golang/govulncheck-action@b625fbe08f3bccbe446d94fbf87fcc875a4f50ee # v1.0.4
+        with:
+          go-version-file: go.mod
+          output-format: sarif
+          output-file: govulncheck.sarif
+
+      - uses: github/codeql-action/upload-sarif@7434149006143a4d75b82a2f411ef15b03ccc2d7 # v3.30.2
+        with:
+          sarif_file: govulncheck.sarif
+          category: govulncheck
