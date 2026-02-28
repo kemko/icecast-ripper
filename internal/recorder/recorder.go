@@ -14,7 +14,19 @@ import (
 	"time"
 )
 
-// Recorder handles recording streams
+var filenameSanitizer = strings.NewReplacer(
+	" ", "_",
+	"/", "-",
+	"\\", "-",
+	":", "-",
+	"*", "-",
+	"?", "-",
+	"\"", "'",
+	"<", "-",
+	">", "-",
+	"|", "-",
+)
+
 type Recorder struct {
 	tempPath       string
 	recordingsPath string
@@ -24,49 +36,36 @@ type Recorder struct {
 	cancelFunc     context.CancelFunc
 	streamName     string
 	userAgent      string
+	log            *slog.Logger
 }
 
-// Option represents a functional option for configuring the recorder
-type Option func(*Recorder)
-
-// WithUserAgent sets a custom User-Agent string for HTTP requests
-func WithUserAgent(userAgent string) Option {
-	return func(r *Recorder) {
-		r.userAgent = userAgent
-	}
-}
-
-// New creates a recorder instance
-func New(tempPath, recordingsPath string, streamName string, opts ...Option) (*Recorder, error) {
+func New(tempPath, recordingsPath, streamName, userAgent string, log *slog.Logger) (*Recorder, error) {
 	for _, dir := range []string{tempPath, recordingsPath} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return nil, fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
 	}
 
-	r := &Recorder{
+	return &Recorder{
 		tempPath:       tempPath,
 		recordingsPath: recordingsPath,
 		streamName:     streamName,
-		client:         &http.Client{Timeout: 0}, // No timeout for long-running downloads
-	}
-
-	// Apply any provided options
-	for _, opt := range opts {
-		opt(r)
-	}
-
-	return r, nil
+		userAgent:      userAgent,
+		log:            log,
+		client:         &http.Client{Timeout: 0},
+	}, nil
 }
 
-// IsRecording returns whether a recording is currently in progress
+func (r *Recorder) RecordingsPath() string {
+	return r.recordingsPath
+}
+
 func (r *Recorder) IsRecording() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.isRecording
 }
 
-// StartRecording begins recording a stream
 func (r *Recorder) StartRecording(ctx context.Context, streamURL string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -79,19 +78,18 @@ func (r *Recorder) StartRecording(ctx context.Context, streamURL string) error {
 	r.cancelFunc = cancel
 	r.isRecording = true
 
-	slog.Info("Starting recording", "url", streamURL)
+	r.log.Info("Starting recording", "url", streamURL)
 	go r.recordStream(recordingCtx, streamURL)
 
 	return nil
 }
 
-// StopRecording stops an in-progress recording
 func (r *Recorder) StopRecording() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if r.isRecording && r.cancelFunc != nil {
-		slog.Info("Stopping current recording")
+		r.log.Info("Stopping current recording")
 		r.cancelFunc()
 	}
 }
@@ -99,91 +97,79 @@ func (r *Recorder) StopRecording() {
 func (r *Recorder) recordStream(ctx context.Context, streamURL string) {
 	startTime := time.Now()
 	var tempFilePath string
-	var moveSuccessful bool
+	var moveErr error
 
 	defer func() {
 		r.mu.Lock()
 		r.isRecording = false
 		r.cancelFunc = nil
 		r.mu.Unlock()
-		slog.Info("Recording process finished")
+		r.log.Info("Recording process finished")
 
-		if tempFilePath != "" && !moveSuccessful {
-			slog.Warn("Temporary file preserved for inspection", "path", tempFilePath)
+		if tempFilePath == "" {
 			return
 		}
-
-		if tempFilePath != "" {
-			if err := cleanupTempFile(tempFilePath); err != nil {
-				slog.Error("Failed to remove temporary file", "path", tempFilePath, "error", err)
-			}
+		if moveErr != nil {
+			r.log.Warn("Temporary file preserved for inspection", "path", tempFilePath)
+			return
+		}
+		if err := os.Remove(tempFilePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			r.log.Error("Failed to remove temporary file", "path", tempFilePath, "error", err)
 		}
 	}()
 
-	// Create temp file for recording
 	tempFile, err := os.CreateTemp(r.tempPath, "recording-*.tmp")
 	if err != nil {
-		slog.Error("Failed to create temporary file", "error", err)
+		r.log.Error("Failed to create temporary file", "error", err)
 		return
 	}
 	tempFilePath = tempFile.Name()
-	slog.Debug("Created temporary file", "path", tempFilePath)
 
 	bytesWritten, err := r.downloadStream(ctx, streamURL, tempFile)
 
 	if closeErr := tempFile.Close(); closeErr != nil {
-		slog.Error("Failed to close temporary file", "error", closeErr)
+		r.log.Error("Failed to close temporary file", "error", closeErr)
 		if err == nil {
 			err = closeErr
 		}
 	}
 
-	// Handle errors and early termination
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
-			slog.Info("Recording stopped via cancellation")
+			r.log.Info("Recording stopped via cancellation")
 		} else {
-			slog.Error("Failed to download stream", "error", err)
+			r.log.Error("Failed to download stream", "error", err)
+			moveErr = err
 			return
 		}
 	}
 
-	// Skip empty recordings
 	if bytesWritten == 0 {
-		slog.Warn("No data written, discarding recording")
+		r.log.Warn("No data written, discarding recording")
 		return
 	}
 
-	// Process successful recording
 	finalPath := r.generateFinalPath(startTime)
-	moveSuccessful = r.moveToFinalLocation(tempFilePath, finalPath)
-
-	if moveSuccessful {
-		duration := time.Since(startTime)
-		slog.Info("Recording saved", "path", finalPath, "size", bytesWritten, "duration", duration)
+	if moveErr = r.moveToFinalLocation(tempFilePath, finalPath); moveErr != nil {
+		r.log.Error("Failed to move recording to final location", "error", moveErr)
+		return
 	}
+
+	r.log.Info("Recording saved", "path", finalPath, "size", bytesWritten, "duration", time.Since(startTime))
 }
 
 func (r *Recorder) generateFinalPath(startTime time.Time) string {
-	finalFilename := fmt.Sprintf("%s_%s.mp3", r.streamName, startTime.Format("20060102_150405"))
-	finalFilename = sanitizeFilename(finalFilename)
-	return filepath.Join(r.recordingsPath, finalFilename)
+	filename := fmt.Sprintf("%s_%s.mp3", r.streamName, startTime.Format("20060102_150405"))
+	filename = sanitizeFilename(filename)
+	return filepath.Join(r.recordingsPath, filename)
 }
 
-func (r *Recorder) moveToFinalLocation(tempPath, finalPath string) bool {
-	// Try rename first (fastest)
-	if err := os.Rename(tempPath, finalPath); err == nil {
-		return true
+// Fallback to copy when rename fails (cross-filesystem)
+func (r *Recorder) moveToFinalLocation(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
 	}
-
-	// Fallback to manual copy
-	if err := copyFile(tempPath, finalPath); err != nil {
-		slog.Error("Failed to move recording to final location", "error", err)
-		return false
-	}
-
-	slog.Info("Recording copied successfully using fallback method")
-	return true
+	return copyFile(src, dst)
 }
 
 func (r *Recorder) downloadStream(ctx context.Context, streamURL string, writer io.Writer) (int64, error) {
@@ -200,36 +186,29 @@ func (r *Recorder) downloadStream(ctx context.Context, streamURL string, writer 
 		}
 		return 0, fmt.Errorf("failed to connect to stream: %w", err)
 	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-			slog.Error("Failed to close response body", "error", err)
-		}
-	}(resp.Body)
+	defer resp.Body.Close() //nolint:errcheck // response body
 
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("unexpected status code: %s", resp.Status)
 	}
 
-	slog.Debug("Connected to stream, downloading", "url", streamURL)
+	r.log.Debug("Connected to stream, downloading", "url", streamURL)
 	bytesWritten, err := io.Copy(writer, resp.Body)
 
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
-			slog.Info("Stream download cancelled")
 			return bytesWritten, ctx.Err()
 		}
 
-		// Handle common stream disconnections gracefully
 		if isNormalDisconnect(err) {
-			slog.Info("Stream disconnected normally", "bytesWritten", bytesWritten)
+			r.log.Info("Stream disconnected normally", "bytesWritten", bytesWritten)
 			return bytesWritten, nil
 		}
 
 		return bytesWritten, fmt.Errorf("failed during stream copy: %w", err)
 	}
 
-	slog.Info("Stream download finished normally", "bytesWritten", bytesWritten)
+	r.log.Info("Stream download finished normally", "bytesWritten", bytesWritten)
 	return bytesWritten, nil
 }
 
@@ -239,58 +218,61 @@ func isNormalDisconnect(err error) bool {
 		strings.Contains(err.Error(), "broken pipe")
 }
 
-func cleanupTempFile(path string) error {
-	if _, err := os.Stat(path); err == nil {
-		slog.Debug("Cleaning up temporary file", "path", path)
-		return os.Remove(path)
-	}
-	return nil
-}
-
-// copyFile copies a file from src to dst
 func copyFile(src, dst string) error {
 	sourceFile, err := os.Open(src)
 	if err != nil {
 		return fmt.Errorf("failed to open source file: %w", err)
 	}
-	defer func(sourceFile *os.File) {
-		err := sourceFile.Close()
-		if err != nil {
-			slog.Error("Failed to close source file", "error", err)
-		}
-	}(sourceFile)
+	defer sourceFile.Close() //nolint:errcheck // read-only file
 
 	destFile, err := os.Create(dst)
 	if err != nil {
 		return fmt.Errorf("failed to create destination file: %w", err)
 	}
-	defer func(destFile *os.File) {
-		err := destFile.Close()
-		if err != nil {
-			slog.Error("Failed to close destination file", "error", err)
-		}
-	}(destFile)
 
 	if _, err := io.Copy(destFile, sourceFile); err != nil {
+		_ = destFile.Close()
 		return fmt.Errorf("failed to copy file contents: %w", err)
 	}
 
-	return nil
+	return destFile.Close()
+}
+
+func (r *Recorder) CleanOldRecordings(maxAge time.Duration) (int, error) {
+	entries, err := os.ReadDir(r.recordingsPath)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read recordings directory: %w", err)
+	}
+
+	cutoff := time.Now().Add(-maxAge)
+	var deleted int
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".mp3") {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			r.log.Warn("Failed to stat recording", "file", entry.Name(), "error", err)
+			continue
+		}
+
+		if info.ModTime().Before(cutoff) {
+			path := filepath.Join(r.recordingsPath, entry.Name())
+			if err := os.Remove(path); err != nil {
+				r.log.Warn("Failed to delete old recording", "file", entry.Name(), "error", err)
+				continue
+			}
+			r.log.Info("Deleted old recording", "file", entry.Name(), "age", time.Since(info.ModTime()).Round(time.Hour))
+			deleted++
+		}
+	}
+
+	return deleted, nil
 }
 
 func sanitizeFilename(filename string) string {
-	replacer := strings.NewReplacer(
-		" ", "_",
-		"/", "-",
-		"\\", "-",
-		":", "-",
-		"*", "-",
-		"?", "-",
-		"\"", "'",
-		"<", "-",
-		">", "-",
-		"|", "-",
-	)
-	cleaned := replacer.Replace(filename)
+	cleaned := filenameSanitizer.Replace(filename)
 	return strings.Trim(cleaned, "_-. ")
 }

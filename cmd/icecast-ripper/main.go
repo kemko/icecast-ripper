@@ -7,12 +7,11 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/kemko/icecast-ripper/internal/config"
-	"github.com/kemko/icecast-ripper/internal/logger"
 	"github.com/kemko/icecast-ripper/internal/recorder"
 	"github.com/kemko/icecast-ripper/internal/rss"
 	"github.com/kemko/icecast-ripper/internal/scheduler"
@@ -20,7 +19,7 @@ import (
 	"github.com/kemko/icecast-ripper/internal/streamchecker"
 )
 
-const version = "0.3.0"
+var version = "dev"
 
 func main() {
 	if err := run(); err != nil {
@@ -30,69 +29,57 @@ func main() {
 }
 
 func run() error {
-	// Load and validate configuration
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("configuration error: %w", err)
 	}
 
-	// Setup logger with text format for better human readability
-	logger.Setup(cfg.LogLevel, logger.Text)
+	setupLogger(cfg.LogLevel)
 	slog.Info("Starting icecast-ripper", "version", version)
 
-	// Extract stream name for identification
 	streamName := extractStreamName(cfg.StreamURL)
 	slog.Info("Using stream identifier", "name", streamName)
 
-	// Create shutdown context
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Create common User-Agent for all HTTP requests
 	userAgent := fmt.Sprintf("icecast-ripper/%s", version)
 
-	// Initialize components
-	streamChecker := streamchecker.New(
-		cfg.StreamURL,
-		streamchecker.WithUserAgent(userAgent),
-	)
+	checkerLog := slog.Default().With("component", "checker")
+	recorderLog := slog.Default().With("component", "recorder")
+	schedulerLog := slog.Default().With("component", "scheduler")
+	rssLog := slog.Default().With("component", "rss")
+	serverLog := slog.Default().With("component", "server")
 
-	recorderInstance, err := recorder.New(
-		cfg.TempPath,
-		cfg.RecordingsPath,
-		streamName,
-		recorder.WithUserAgent(userAgent),
-	)
+	streamChecker := streamchecker.New(cfg.StreamURL, userAgent, checkerLog)
+
+	recorderInstance, err := recorder.New(cfg.TempPath, cfg.RecordingsPath, streamName, userAgent, recorderLog)
 	if err != nil {
 		return fmt.Errorf("recorder initialization failed: %w", err)
 	}
 
 	feedTitle := "Icecast Recordings"
 	feedDesc := "Recordings from stream: " + cfg.StreamURL
-	rssGenerator := rss.New(cfg, feedTitle, feedDesc, streamName)
+	rssGenerator := rss.New(cfg.PublicURL, cfg.RecordingsPath, feedTitle, feedDesc, streamName, rssLog)
 
-	schedulerInstance := scheduler.New(cfg.CheckInterval, streamChecker, recorderInstance)
-	httpServer := server.New(cfg, rssGenerator)
+	schedulerInstance := scheduler.New(cfg.CheckInterval, streamChecker, recorderInstance, cfg.RetentionDays, schedulerLog)
+	httpServer := server.New(cfg.BindAddress, cfg.RecordingsPath, rssGenerator, serverLog)
 
-	// Start services
 	schedulerInstance.Start(ctx)
 
 	if err := httpServer.Start(); err != nil {
-		stop() // Cancel context before returning
+		stop()
 		return fmt.Errorf("HTTP server failed to start: %w", err)
 	}
 
 	slog.Info("Application started successfully. Press Ctrl+C to shut down.")
 
-	// Wait for termination signal
 	<-ctx.Done()
 	slog.Info("Shutting down application...")
 
-	// Graceful shutdown with timeout
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 
-	// Stop components in reverse order of dependency
 	schedulerInstance.Stop()
 	recorderInstance.StopRecording()
 
@@ -104,26 +91,29 @@ func run() error {
 	return nil
 }
 
-// extractStreamName derives a meaningful identifier from the stream URL
+func setupLogger(level string) {
+	var l slog.Level
+	switch strings.ToLower(level) {
+	case "debug":
+		l = slog.LevelDebug
+	case "warn":
+		l = slog.LevelWarn
+	case "error":
+		l = slog.LevelError
+	default:
+		l = slog.LevelInfo
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: l})))
+}
+
 func extractStreamName(streamURL string) string {
-	parsedURL, err := url.Parse(streamURL)
+	u, err := url.Parse(streamURL)
 	if err != nil {
-		return streamURL
+		return "unknown"
 	}
-
-	streamName := parsedURL.Hostname()
-
-	if parsedURL.Path != "" && parsedURL.Path != "/" {
-		path := parsedURL.Path
-		if path[0] == '/' {
-			path = path[1:]
-		}
-
-		pathSegments := filepath.SplitList(path)
-		if len(pathSegments) > 0 {
-			streamName += "_" + pathSegments[0]
-		}
+	name := u.Hostname()
+	if p := strings.TrimPrefix(u.Path, "/"); p != "" {
+		name += "_" + strings.ReplaceAll(p, "/", "_")
 	}
-
-	return streamName
+	return name
 }

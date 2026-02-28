@@ -2,51 +2,54 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 	"time"
-
-	"github.com/spf13/viper"
 )
 
-// Config stores application configuration loaded from environment variables
 type Config struct {
-	StreamURL      string        `mapstructure:"STREAM_URL"`      // URL of the Icecast stream to record
-	CheckInterval  time.Duration `mapstructure:"CHECK_INTERVAL"`  // How often to check if the stream is live
-	RecordingsPath string        `mapstructure:"RECORDINGS_PATH"` // Where to store recordings
-	TempPath       string        `mapstructure:"TEMP_PATH"`       // Where to store temporary files during recording
-	BindAddress    string        `mapstructure:"BIND_ADDRESS"`    // HTTP server address:port
-	PublicURL      string        `mapstructure:"PUBLIC_URL"`      // Public-facing URL for RSS feed links
-	LogLevel       string        `mapstructure:"LOG_LEVEL"`       // Logging level (debug, info, warn, error)
+	StreamURL      string
+	CheckInterval  time.Duration
+	RecordingsPath string
+	TempPath       string
+	BindAddress    string
+	PublicURL      string
+	LogLevel       string
+	RetentionDays  int // 0 = disabled (keep forever)
 }
 
-// LoadConfig reads configuration from environment variables
 func LoadConfig() (*Config, error) {
-	v := viper.New()
-	v.AutomaticEnv()
-
-	// Set default values
-	defaults := map[string]any{
-		"STREAM_URL":      "",
-		"CHECK_INTERVAL":  "1m",
-		"RECORDINGS_PATH": "./recordings",
-		"TEMP_PATH":       "/tmp",
-		"BIND_ADDRESS":    ":8080",
-		"PUBLIC_URL":      "http://localhost:8080",
-		"LOG_LEVEL":       "info",
+	cfg := &Config{
+		StreamURL:      os.Getenv("STREAM_URL"),
+		RecordingsPath: getEnvOrDefault("RECORDINGS_PATH", "./recordings"),
+		TempPath:       getEnvOrDefault("TEMP_PATH", "/tmp"),
+		BindAddress:    getEnvOrDefault("BIND_ADDRESS", ":8080"),
+		PublicURL:      getEnvOrDefault("PUBLIC_URL", "http://localhost:8080"),
+		LogLevel:       getEnvOrDefault("LOG_LEVEL", "info"),
 	}
 
-	for key, value := range defaults {
-		v.SetDefault(key, value)
+	interval, err := time.ParseDuration(getEnvOrDefault("CHECK_INTERVAL", "1m"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid CHECK_INTERVAL: %w", err)
 	}
+	cfg.CheckInterval = interval
 
-	var config Config
-	if err := v.Unmarshal(&config); err != nil {
-		return nil, fmt.Errorf("failed to parse configuration: %w", err)
+	retentionDays, err := strconv.Atoi(getEnvOrDefault("RETENTION_DAYS", "90"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid RETENTION_DAYS: %w", err)
 	}
+	cfg.RetentionDays = retentionDays
 
-	// Validate required fields
-	if config.StreamURL == "" {
+	if cfg.StreamURL == "" {
 		return nil, fmt.Errorf("STREAM_URL is required")
 	}
 
-	return &config, nil
+	return cfg, nil
+}
+
+func getEnvOrDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }

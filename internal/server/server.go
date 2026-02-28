@@ -3,49 +3,47 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"path/filepath"
 	"time"
-
-	"github.com/kemko/icecast-ripper/internal/config"
-	"github.com/kemko/icecast-ripper/internal/rss"
 )
 
-// Server handles HTTP requests for the RSS feed and recordings
-type Server struct {
-	server         *http.Server
-	rssGenerator   *rss.Generator
-	recordingsPath string
+type FeedGenerator interface {
+	GenerateFeed(maxItems int) ([]byte, error)
 }
 
-// New creates a new HTTP server instance
-func New(cfg *config.Config, rssGenerator *rss.Generator) *Server {
+type Server struct {
+	server       *http.Server
+	feedGen      FeedGenerator
+	log          *slog.Logger
+}
+
+func New(bindAddress, recordingsPath string, feedGen FeedGenerator, log *slog.Logger) *Server {
 	mux := http.NewServeMux()
 
-	// Get absolute path for recordings directory
-	absRecordingsPath, err := filepath.Abs(cfg.RecordingsPath)
+	absRecordingsPath, err := filepath.Abs(recordingsPath)
 	if err != nil {
-		slog.Error("Failed to get absolute path for recordings directory", "error", err)
-		absRecordingsPath = cfg.RecordingsPath // Fallback to original path
+		log.Error("Failed to resolve recordings path", "error", err)
+		absRecordingsPath = recordingsPath
 	}
 
 	s := &Server{
-		rssGenerator:   rssGenerator,
-		recordingsPath: absRecordingsPath,
+		feedGen: feedGen,
+		log:     log,
 	}
 
-	// Set up routes
 	mux.HandleFunc("GET /rss", s.handleRSS)
+	mux.HandleFunc("GET /healthz", s.handleHealth)
 
-	// Serve static recordings
-	slog.Info("Serving recordings from", "path", absRecordingsPath)
+	log.Info("Serving recordings", "path", absRecordingsPath)
 	fileServer := http.FileServer(http.Dir(absRecordingsPath))
 	mux.Handle("GET /recordings/", http.StripPrefix("/recordings/", fileServer))
 
-	// Configure server with timeouts for robustness
 	s.server = &http.Server{
-		Addr:         cfg.BindAddress,
+		Addr:         bindAddress,
 		Handler:      mux,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
@@ -55,39 +53,43 @@ func New(cfg *config.Config, rssGenerator *rss.Generator) *Server {
 	return s
 }
 
-// handleRSS generates and serves the RSS feed
 func (s *Server) handleRSS(w http.ResponseWriter, _ *http.Request) {
-	slog.Debug("Serving RSS feed")
-
 	const maxItems = 50
-	feedBytes, err := s.rssGenerator.GenerateFeed(maxItems)
+	feedBytes, err := s.feedGen.GenerateFeed(maxItems)
 	if err != nil {
-		slog.Error("Failed to generate RSS feed", "error", err)
+		s.log.Error("Failed to generate RSS feed", "error", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 	if _, err = w.Write(feedBytes); err != nil {
-		slog.Error("Failed to write RSS response", "error", err)
+		s.log.Error("Failed to write RSS response", "error", err)
 	}
 }
 
-// Start begins listening for HTTP requests
+func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	_, _ = fmt.Fprintln(w, "ok")
+}
+
 func (s *Server) Start() error {
-	slog.Info("Starting HTTP server", "address", s.server.Addr)
+	ln, err := net.Listen("tcp", s.server.Addr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on %s: %w", s.server.Addr, err)
+	}
+	s.log.Info("HTTP server listening", "address", s.server.Addr)
 
 	go func() {
-		if err := s.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("HTTP server error", "error", err)
+		if err := s.server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			s.log.Error("HTTP server error", "error", err)
 		}
 	}()
 
 	return nil
 }
 
-// Stop gracefully shuts down the HTTP server
 func (s *Server) Stop(ctx context.Context) error {
-	slog.Info("Stopping HTTP server")
+	s.log.Info("Stopping HTTP server")
 	return s.server.Shutdown(ctx)
 }

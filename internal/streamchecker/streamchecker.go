@@ -12,43 +12,22 @@ type Checker struct {
 	streamURL string
 	client    *http.Client
 	userAgent string
+	log       *slog.Logger
 }
 
-// Option represents a functional option for configuring the Checker
-type Option func(*Checker)
-
-// WithUserAgent sets a custom User-Agent header
-func WithUserAgent(userAgent string) Option {
-	return func(c *Checker) {
-		c.userAgent = userAgent
-	}
-}
-
-// New creates a new stream checker with sensible defaults
-func New(streamURL string, opts ...Option) *Checker {
-	c := &Checker{
+func New(streamURL, userAgent string, log *slog.Logger) *Checker {
+	return &Checker{
 		streamURL: streamURL,
+		userAgent: userAgent,
+		log:       log,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
 	}
-
-	// Apply any provided options
-	for _, opt := range opts {
-		opt(c)
-	}
-
-	return c
 }
 
-// IsLive checks if the stream is currently broadcasting
-func (c *Checker) IsLive() (bool, error) {
-	return c.IsLiveWithContext(context.Background())
-}
-
-// IsLiveWithContext checks if the stream is live using the provided context
-func (c *Checker) IsLiveWithContext(ctx context.Context) (bool, error) {
-	slog.Debug("Checking stream status", "url", c.streamURL)
+func (c *Checker) IsLive(ctx context.Context) (bool, error) {
+	c.log.Debug("Checking stream status", "url", c.streamURL)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.streamURL, nil)
 	if err != nil {
@@ -59,25 +38,20 @@ func (c *Checker) IsLiveWithContext(ctx context.Context) (bool, error) {
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		slog.Debug("Connection to stream failed, considering not live", "error", err)
-		return false, nil // Connection failures mean the stream is not available
+		c.log.Debug("Connection to stream failed, considering not live", "error", err)
+		return false, nil
 	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			slog.Error("Failed to close response body", "error", err)
-		}
-	}()
+	defer resp.Body.Close() //nolint:errcheck // response body
 
 	if resp.StatusCode == http.StatusOK {
-		slog.Info("Stream is live", "status", resp.StatusCode)
+		c.log.Info("Stream is live", "status", resp.StatusCode)
 		return true, nil
 	}
 
-	slog.Debug("Stream is not live", "status", resp.StatusCode)
+	c.log.Debug("Stream is not live", "status", resp.StatusCode)
 	return false, nil
 }
 
-// GetStreamURL returns the URL being monitored
-func (c *Checker) GetStreamURL() string {
+func (c *Checker) StreamURL() string {
 	return c.streamURL
 }
