@@ -1,10 +1,11 @@
-FROM golang:1.24-alpine AS builder
+FROM golang:alpine AS builder
 
 WORKDIR /app
 COPY . .
 
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -ldflags="-w -s -X main.version=${VERSION}" -o /icecast-ripper ./cmd/icecast-ripper
+RUN CGO_ENABLED=0 GOTOOLCHAIN=auto \
+    go build -ldflags="-w -s -X main.version=${VERSION}" -o /icecast-ripper ./cmd/icecast-ripper
 
 FROM alpine:latest
 
